@@ -5,7 +5,7 @@ import {
   Copy, ExternalLink, PlayCircle, Link2, BookOpenText, Settings2,
   AlertTriangle, CheckCircle2, XCircle, ShieldAlert,
   ChevronRight, Clock, ArrowRight, Layers,
-  MessageSquarePlus, Mail,
+  MessageSquarePlus,
 } from "lucide-react";
 import { useAssets } from "../context/AssetContext";
 import { getAssetById } from "../data/store";
@@ -48,6 +48,14 @@ const ERROR_TYPES = [
   "사용 방법이 이해되지 않음",
   "데이터·보안 우려",
   "기타",
+];
+
+// ─── 오류 제보 처리 이력 (mock) ───────────────────────────────────────────────
+// 제보 원문·대화 내용은 노출하지 않고, 유형과 반영 버전만 보여준다.
+const REPORT_HISTORY = [
+  { type: "동작 오류",     version: "v1.2" },
+  { type: "결과 부정확",   version: "v1.1" },
+  { type: "사용 방법 문의", version: "v1.1" },
 ];
 
 // ─── 변경 이력 생성 ──────────────────────────────────────────────────────────
@@ -105,8 +113,10 @@ export default function AssetDetailScreen({
   const asset = getAssetById(assets, assetId);
 
   const [errorModalOpen,   setErrorModalOpen]   = useState(false);
-  const [contactModalOpen, setContactModalOpen] = useState(false);
+  const [issueChatOpen,    setIssueChatOpen]    = useState(false);
+  const [chatSummary,      setChatSummary]      = useState<string | null>(null);
   const [simOpen,          setSimOpen]          = useState(false);
+  const [historyOpen,      setHistoryOpen]      = useState(false);
 
   if (!asset) {
     return (
@@ -257,18 +267,34 @@ export default function AssetDetailScreen({
 
           {/* 등록자 정보 */}
           <Section title="등록자 정보">
-            <div className="flex items-start justify-between">
-              <div className="space-y-1.5 text-[13px]">
-                <div className="font-medium text-foreground">{asset.ownerName}</div>
-                <div className="text-muted-foreground">{asset.ownerDepartment}</div>
-                <div className="text-muted-foreground">등록일 {asset.createdAt}</div>
+            <div className="space-y-1.5 text-[13px]">
+              <div className="font-medium text-foreground">{asset.ownerName}</div>
+              <div className="text-muted-foreground">{asset.ownerDepartment}</div>
+              <div className="text-muted-foreground">등록일 {asset.createdAt}</div>
+              <div className="relative w-fit">
+                <button
+                  onClick={() => setHistoryOpen((v) => !v)}
+                  className="inline-flex items-center px-2 py-0.5 rounded text-[11px] text-muted-foreground bg-muted hover:bg-muted/70 transition-colors"
+                >
+                  오류 제보 3건 중 3건 반영
+                </button>
+                {historyOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setHistoryOpen(false)} />
+                    <div className="absolute left-0 top-full mt-1 z-50 w-56 bg-card border border-border rounded-md shadow-lg py-1.5">
+                      <div className="px-3 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                        처리 이력
+                      </div>
+                      {REPORT_HISTORY.map((h, i) => (
+                        <div key={i} className="px-3 py-1.5 text-[12px] text-foreground flex items-center justify-between gap-2">
+                          <span>{h.type}</span>
+                          <span className="text-muted-foreground" style={{ fontFamily: "'DM Mono', monospace" }}>→ {h.version} 반영</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
-              <button
-                onClick={() => setContactModalOpen(true)}
-                className="flex items-center gap-1.5 h-8 px-3 rounded border border-border text-[12px] text-foreground hover:bg-muted transition-colors"
-              >
-                <Mail size={13} /> 등록자에게 문의
-              </button>
             </div>
           </Section>
         </div>
@@ -393,22 +419,34 @@ export default function AssetDetailScreen({
             {/* 액션 */}
             <div className="px-5 pt-3 pb-4 space-y-2">
               <button
-                onClick={() => setErrorModalOpen(true)}
+                onClick={() => setIssueChatOpen(true)}
                 className="w-full flex items-center gap-2 h-8 px-3 rounded border border-border text-[12px] text-foreground hover:bg-muted transition-colors"
               >
-                <MessageSquarePlus size={13} className="text-muted-foreground" /> 오류 제보
+                <MessageSquarePlus size={13} className="text-muted-foreground" /> 문제가 있나요?
               </button>
             </div>
           </div>
         </aside>
       </div>
 
-      {/* ── 모달: 오류 제보 ── */}
+      {/* ── 모달: 오류 제보 (기존 폼 — 대화가 미해결·전달 동의로 끝나면 요약과 함께 다시 연결) ── */}
       {errorModalOpen && (
         <ErrorReportModal
           asset={asset}
-          onClose={() => setErrorModalOpen(false)}
+          initialDetail={chatSummary ?? undefined}
+          onClose={() => { setErrorModalOpen(false); setChatSummary(null); }}
           onReport={(errorType) => dispatch({ type: "REPORT_ERROR", id: asset.id, errorType })}
+        />
+      )}
+      {/* ── 모달: 문제가 있나요? (대화 UI) ── */}
+      {issueChatOpen && (
+        <IssueChatModal
+          onClose={() => setIssueChatOpen(false)}
+          onEscalate={(summary) => {
+            setChatSummary(summary);
+            setIssueChatOpen(false);
+            setErrorModalOpen(true);
+          }}
         />
       )}
       {/* ── 모달: 실행 시뮬레이션 ── */}
@@ -421,11 +459,6 @@ export default function AssetDetailScreen({
             dispatch({ type: "INCREMENT_USAGE", id: asset.id });
           }}
         />
-      )}
-
-      {/* ── 모달: 등록자에게 문의 ── */}
-      {contactModalOpen && (
-        <ContactModal asset={asset} onClose={() => setContactModalOpen(false)} />
       )}
     </div>
   );
@@ -866,10 +899,17 @@ function PanelRow({ label, children }: { label: string; children: React.ReactNod
 
 // ─── 오류 제보 모달 ───────────────────────────────────────────────────────────
 
-function ErrorReportModal({ asset, onClose, onReport }: { asset: AIAsset; onClose: () => void; onReport?: (errorType: string) => void }) {
+function ErrorReportModal({
+  asset, onClose, onReport, initialDetail,
+}: {
+  asset: AIAsset;
+  onClose: () => void;
+  onReport?: (errorType: string) => void;
+  initialDetail?: string;
+}) {
   const [errorType, setErrorType] = useState("");
   const [situation, setSituation] = useState("");
-  const [detail,    setDetail]    = useState("");
+  const [detail,    setDetail]    = useState(initialDetail ?? "");
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -948,54 +988,152 @@ function ErrorReportModal({ asset, onClose, onReport }: { asset: AIAsset; onClos
   );
 }
 
-// ─── 등록자 문의 모달 ─────────────────────────────────────────────────────────
+// ─── 문제가 있나요? 대화 모달 (mock — 실제 AI 연동 없음) ───────────────────────
+// 대화 흐름: 초기 → 대화중 → 해결 / 미해결. 해결되면 아무것도 등록자에게
+// 전달되지 않고, 미해결이며 사용자가 동의하면 기존 오류 제보 폼을 대화 요약이
+// 채워진 채로 다시 연다 — 실제 판정은 AI가 아니라 사용자가 버튼으로 직접 답한다.
 
-function ContactModal({ asset, onClose }: { asset: AIAsset; onClose: () => void }) {
-  const [message, setMessage] = useState("");
+type ChatRole = "ai" | "user";
+interface ChatMessage { role: ChatRole; text: string }
+type ChatStage = "initial" | "chatting" | "resolved" | "declined";
 
-  function handleSubmit(e: React.FormEvent) {
+const CHAT_INTRO = "어떤 상황인지 알려주세요. 지금 어디서 막히셨어요?";
+
+const MOCK_ACK_REPLIES = [
+  "말씀 감사해요. 혹시 새로고침 후 다시 시도해보셨을까요?",
+  "그렇군요. 입력하신 값이나 권한 설정도 한 번 확인해보셨어요?",
+  "안내드린 방법대로 해보셨는데도 그러셨다는 거군요, 확인했어요.",
+];
+
+const CHAT_ESCALATE_PROMPT = "이건 자산 자체를 확인해야 할 것 같아요. 등록자에게 전달할까요?";
+
+function buildMockSummary(messages: ChatMessage[]): string {
+  const userText = messages.filter((m) => m.role === "user").map((m) => m.text).join(" / ");
+  return `[AI 상담 요약] 사용자 문의: "${userText}" — 안내된 방법으로도 해결되지 않아 자산 자체 확인이 필요해 보입니다.`;
+}
+
+function IssueChatModal({ onClose, onEscalate }: { onClose: () => void; onEscalate: (summary: string) => void }) {
+  const [messages, setMessages] = useState<ChatMessage[]>([{ role: "ai", text: CHAT_INTRO }]);
+  const [stage, setStage] = useState<ChatStage>("initial");
+  const [awaitingEscalationReply, setAwaitingEscalationReply] = useState(false);
+  const [input, setInput] = useState("");
+
+  function handleSend(e: React.FormEvent) {
     e.preventDefault();
-    onClose();
-    toast.success("문의가 전달되었습니다. (데모)", {
-      description: `${asset.ownerName} · ${asset.ownerDepartment}`,
-      duration: 2500,
-    });
+    const text = input.trim();
+    if (!text) return;
+
+    const userTurn = messages.filter((m) => m.role === "user").length;
+    const ack = MOCK_ACK_REPLIES[Math.min(userTurn, MOCK_ACK_REPLIES.length - 1)];
+
+    setMessages((prev) => [...prev, { role: "user", text }, { role: "ai", text: ack }]);
+    setStage("chatting");
+    setInput("");
   }
+
+  function handleResolved() {
+    setMessages((prev) => [...prev, { role: "ai", text: "다행이에요! 도움이 더 필요하시면 언제든 다시 말씀해 주세요." }]);
+    setStage("resolved");
+  }
+
+  function handleUnresolved() {
+    setMessages((prev) => [...prev, { role: "ai", text: CHAT_ESCALATE_PROMPT }]);
+    setAwaitingEscalationReply(true);
+  }
+
+  function handleDeclineEscalation() {
+    setMessages((prev) => [...prev, { role: "ai", text: "알겠습니다. 필요하시면 다시 문의해 주세요." }]);
+    setAwaitingEscalationReply(false);
+    setStage("declined");
+  }
+
+  function handleAgreeEscalation() {
+    onEscalate(buildMockSummary(messages));
+  }
+
+  const showResolveButtons = stage === "chatting" && !awaitingEscalationReply;
+  const inputDisabled = stage === "resolved" || stage === "declined";
 
   return (
     <ModalOverlay onClose={onClose}>
-      <div className="bg-card rounded-lg shadow-xl w-[440px]">
+      <div className="bg-card rounded-lg shadow-xl w-[440px] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h3 className="text-[15px] font-semibold text-foreground">등록자에게 문의</h3>
+          <h3 className="text-[15px] font-semibold text-foreground">문제가 있나요?</h3>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-[20px] leading-none">×</button>
         </div>
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
-          <div className="text-[13px] text-foreground">
-            <span className="font-medium">{asset.ownerName}</span>
-            <span className="text-muted-foreground ml-2">({asset.ownerDepartment})</span>
+
+        <div className="px-6 py-5 flex flex-col gap-3 max-h-[360px] overflow-y-auto">
+          {messages.map((m, i) => (
+            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div className={`max-w-[80%] rounded-lg px-3 py-2 text-[13px] leading-relaxed ${
+                m.role === "user"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-foreground"
+              }`}>
+                {m.text}
+              </div>
+            </div>
+          ))}
+
+          {showResolveButtons && (
+            <div className="flex gap-2 justify-start pl-1">
+              <button
+                onClick={handleResolved}
+                className="h-8 px-3 rounded border border-border text-[12px] text-foreground hover:bg-muted transition-colors"
+              >
+                해결됐어요
+              </button>
+              <button
+                onClick={handleUnresolved}
+                className="h-8 px-3 rounded border border-border text-[12px] text-foreground hover:bg-muted transition-colors"
+              >
+                아직이요
+              </button>
+            </div>
+          )}
+
+          {awaitingEscalationReply && (
+            <div className="flex gap-2 justify-start pl-1">
+              <button
+                onClick={handleAgreeEscalation}
+                className="h-8 px-3 rounded bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90 transition-colors"
+              >
+                네, 전달할게요
+              </button>
+              <button
+                onClick={handleDeclineEscalation}
+                className="h-8 px-3 rounded border border-border text-[12px] text-foreground hover:bg-muted transition-colors"
+              >
+                아니요, 괜찮아요
+              </button>
+            </div>
+          )}
+        </div>
+
+        {inputDisabled ? (
+          <div className="px-6 py-4 border-t border-border">
+            <button onClick={onClose} className="w-full h-9 rounded border border-border text-[13px] text-foreground hover:bg-muted transition-colors">
+              닫기
+            </button>
           </div>
-          <div>
-            <label className="block text-[12px] font-medium text-foreground mb-1.5">문의 내용</label>
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="질문이나 요청 사항을 입력하세요."
-              rows={5}
-              className="w-full px-3 py-2 rounded border border-border bg-background text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+        ) : (
+          <form onSubmit={handleSend} className="flex items-center gap-2 px-6 py-4 border-t border-border">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="상황을 입력해 주세요."
+              className="flex-1 h-9 px-3 rounded border border-border bg-background text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
-          </div>
-          <p className="text-[11px] text-muted-foreground">실제 메일은 발송되지 않습니다. (데모)</p>
-          <div className="flex gap-2">
-            <button type="button" onClick={onClose}
-              className="flex-1 h-9 rounded border border-border text-[13px] text-foreground hover:bg-muted transition-colors">
-              취소
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              className="h-9 px-4 rounded bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              전송
             </button>
-            <button type="submit"
-              className="flex-1 h-9 rounded bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 transition-colors">
-              전송 (데모)
-            </button>
-          </div>
-        </form>
+          </form>
+        )}
       </div>
     </ModalOverlay>
   );

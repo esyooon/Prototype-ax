@@ -605,7 +605,7 @@ function PublishedDetail({
                 onClick={() => toast.info("새 버전 등록", { description: "자산 등록 화면에서 새 버전을 등록하세요.", duration: 3000 })}
                 className="w-full flex items-center gap-2 h-9 px-3 rounded bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90 transition-colors"
               >
-                <PlusCircle size={13} /> 새 버전 등록
+                <PlusCircle size={13} /> 자산 업데이트
               </button>
               <button
                 onClick={() => toast.warning("게시 중지 요청", { description: "거버넌스 운영팀에 게시 중지 요청이 접수됩니다.", duration: 3000 })}

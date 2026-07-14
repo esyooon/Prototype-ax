@@ -53,8 +53,6 @@ const ASSET_TYPES: { type: AssetType; label: string; desc: string; badge: { bg: 
   { type: "OTHER",      label: "기타",                   desc: "위 유형에 속하지 않는 AI 관련 자산",          badge: { bg: "bg-gray-100",   text: "text-gray-600"   } },
 ];
 
-const VISIBILITY_OPTIONS = ["나만 사용", "소속 팀", "특정 부서", "파일럿 사용자", "전 임직원"];
-
 const ENV_OPTIONS = [
   "Gemini Enterprise", "Claude Team", "GitHub Copilot",
   "Gemini API", "Claude API", "브라우저", "별도 서버",
@@ -106,7 +104,7 @@ const DEMO_FORM: Partial<FormData> = {
   description: "팀원의 주간 업무를 모아 완료·진행·이슈로 정리하고 보고서 초안을 생성합니다.",
   useCases: "매주 금요일 팀원 주간보고를 자동으로 수집해 보고서 초안을 작성하고, 담당자가 검토 후 Google Docs에 반영합니다.",
   limitations: "",
-  visibility: "파일럿 사용자",
+  visibility: "전 임직원",
   trigger: "매주 금요일 오후 5시 (예약 실행)",
   connectedServices: "Google Forms, Google Sheets, Google Docs, Gemini API",
   processingSteps: "1. 폼 응답 수집\n2. 주간 업무 분류\n3. 통합 문서 초안 생성\n4. 사용자 확인\n5. 문서 반영",
@@ -169,7 +167,7 @@ export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<FormData>({
     assetType: null, name: "", description: "", useCases: "", limitations: "",
-    visibility: "소속 팀", trigger: "", connectedServices: "", processingSteps: "",
+    visibility: "전 임직원", trigger: "", connectedServices: "", processingSteps: "",
     operations: [], genericContent: "", envSelections: [], hasCost: null,
   });
   const [diag, setDiag] = useState<DiagState>({ q1: null, q2: null, q3: null, q4: null, q5: null, q6: null });
@@ -181,7 +179,7 @@ export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu
 
   function canAdvance(): boolean {
     if (step === 1) return form.assetType !== null;
-    if (step === 2) return form.name.trim().length > 0 && form.description.trim().length > 0 && form.visibility !== "";
+    if (step === 2) return form.name.trim().length > 0 && form.description.trim().length > 0;
     if (step === 3) {
       if (form.assetType === "AUTOMATION") return form.trigger.trim().length > 0 && form.connectedServices.trim().length > 0;
       return true;
@@ -367,23 +365,9 @@ function Step2({ form, patchForm, fillDemo }: { form: FormData; patchForm: (p: P
         </div>
       </SectionCard>
 
-      <SectionCard title="초기 공개 범위">
-        <div className="flex flex-wrap gap-2 mt-1">
-          {VISIBILITY_OPTIONS.map(v => (
-            <button
-              key={v}
-              onClick={() => patchForm({ visibility: v })}
-              className={`h-8 px-3.5 rounded-full text-[12px] border font-medium transition-colors ${
-                form.visibility === v
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-card text-foreground border-border hover:bg-muted"
-              }`}
-            >
-              {v}
-            </button>
-          ))}
-        </div>
-      </SectionCard>
+      <p className="text-[12px] text-muted-foreground px-1">
+        게시되는 모든 자산은 전 임직원에게 공개됩니다.
+      </p>
     </>
   );
 }
