@@ -671,7 +671,7 @@ function StatusPanel({ asset, detail }: { asset: AIAsset; detail: StatusDetail }
           <p className="text-[12px] text-foreground font-medium">{getExpectedDeadline(asset)}</p>
         </div>
         <div>
-          <p className="text-[10px] text-muted-foreground mb-1">담당 조직</p>
+          <p className="text-[10px] text-muted-foreground mb-1">현재 처리</p>
           <p className="text-[12px] text-foreground font-medium">{detail.org}</p>
         </div>
         <div>
