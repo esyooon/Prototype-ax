@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { ChevronRight, Info, Paperclip, Image as ImageIcon, CheckCircle2, AlertTriangle, XCircle, Clock } from "lucide-react";
+import { ChevronRight, Info, Paperclip, Image as ImageIcon, CheckCircle2, AlertTriangle, XCircle, Clock, Sparkles, Bot } from "lucide-react";
 import { useAssets } from "../context/AssetContext";
 import type { AssetType, ReviewPath, SelfDiagnosisAnswers } from "../data/types";
 import { calculateReviewPath } from "../data/reviewPolicy";
@@ -27,6 +27,11 @@ interface FormData {
   // step 5
   envSelections: string[];
   hasCost: DiagAnswer;
+  // origin zone (step 2 상단) — 유형별 원문. 자가진단 힌트 스캔에도 쓰인다.
+  originContent: string;
+  originFileName: string;
+  originLink: string;
+  aiDraftApplied: boolean;
 }
 
 interface DiagState {
@@ -98,6 +103,54 @@ const DIAG_QUESTIONS: { key: keyof DiagState; q: string; example: string; why: s
   },
 ];
 
+// ─── 원문 존: 유형별 mock 원문 / AI 초안 ──────────────────────────────────────
+// 파일 첨부·링크 입력은 실제 내용을 읽을 수 없으므로, 첨부·입력 시점에 해당
+// 유형에 맞는 mock 원문을 대신 채운다. 자가진단 힌트 스캔(작업 2)도 이 원문을
+// 기준으로 한다.
+const MOCK_ORIGIN_TEXT: Partial<Record<AssetType, string>> = {
+  AUTOMATION: "회의가 끝나면 녹취록을 정리해서 결정사항과 담당자별 할 일을 팀 채널로 메일로 보내고, 완료된 항목은 자동으로 삭제 처리합니다. 문서 수정 이력도 함께 남깁니다.",
+  ASSISTANT: "이 어시스턴트는 사내 규정 문서를 검색해 질문에 답합니다. 문서 수정 권한은 없으며 읽기 전용으로 동작합니다.",
+};
+
+const AI_DRAFT_BY_TYPE: Partial<Record<AssetType, { description: string; useCases: string; processingSteps?: string }>> = {
+  AUTOMATION: {
+    description: "회의록을 붙여넣으면 결정사항·할 일을 분리합니다.",
+    useCases: "입력: 회의 녹취록 붙여넣기\n출력: 결정사항 3건, 담당자별 할 일 목록",
+    processingSteps: "1. 원문 텍스트 분석\n2. 결정사항 추출\n3. 담당자·기한 매칭\n4. 요약본 생성\n5. 사용자 확인",
+  },
+  PROMPT: {
+    description: "고객 문의를 유형별로 분류하고 답변 초안을 작성합니다.",
+    useCases: "입력: 고객 문의 원문\n출력: 문의 유형, 답변 초안, 확인 필요 사항",
+  },
+  ASSISTANT: {
+    description: "연결된 문서를 바탕으로 질문에 답합니다.",
+    useCases: '입력: "재택근무 신청 방법은?"\n출력: 관련 규정 조항과 요약 답변',
+  },
+};
+
+// ─── 작성 중 스캔 힌트 (자가진단 힌트) ─────────────────────────────────────────
+// 원문(원문 존에서 채워진 form.originContent)에 특정 표현이 있으면 해당 문항
+// 옆에 힌트만 띄운다. 답은 절대 미리 체크하지 않는다 — 등록자가 직접 판단.
+const SCAN_HINTS: Partial<Record<keyof DiagState, { keyword: string; phrase: string }[]>> = {
+  q4: [
+    { keyword: "보내", phrase: "메일로 보내" },
+    { keyword: "삭제", phrase: "삭제" },
+    { keyword: "수정", phrase: "수정" },
+  ],
+};
+
+function getScanHints(key: keyof DiagState, originContent: string): string[] {
+  const rules = SCAN_HINTS[key];
+  if (!rules || !originContent.trim()) return [];
+  const hints: string[] = [];
+  for (const rule of rules) {
+    if (originContent.includes(rule.keyword) && !hints.includes(rule.phrase)) {
+      hints.push(rule.phrase);
+    }
+  }
+  return hints;
+}
+
 const DEMO_FORM: Partial<FormData> = {
   assetType: "AUTOMATION",
   name: "주간 업무보고 자동 취합",
@@ -145,15 +198,26 @@ function SectionCard({ title, children }: { title?: string; children: React.Reac
   );
 }
 
-function Field({ label, required, children, hint }: { label: string; required?: boolean; children: React.ReactNode; hint?: string }) {
+function Field({ label, required, children, hint, badge }: { label: string; required?: boolean; children: React.ReactNode; hint?: string; badge?: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-[12px] font-medium text-foreground">
-        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
-      </label>
+      <div className="flex items-center gap-2">
+        <label className="text-[12px] font-medium text-foreground">
+          {label}{required && <span className="text-red-500 ml-0.5">*</span>}
+        </label>
+        {badge}
+      </div>
       {children}
       {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
     </div>
+  );
+}
+
+function AiDraftBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary bg-primary/10 rounded px-1.5 py-0.5">
+      <Sparkles size={10} /> AI 초안 — 확인 후 수정하세요
+    </span>
   );
 }
 
@@ -169,6 +233,7 @@ export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu
     assetType: null, name: "", description: "", useCases: "", limitations: "",
     visibility: "전 임직원", trigger: "", connectedServices: "", processingSteps: "",
     operations: [], genericContent: "", envSelections: [], hasCost: null,
+    originContent: "", originFileName: "", originLink: "", aiDraftApplied: false,
   });
   const [diag, setDiag] = useState<DiagState>({ q1: null, q2: null, q3: null, q4: null, q5: null, q6: null });
   const [submitted, setSubmitted] = useState(false);
@@ -217,7 +282,7 @@ export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu
           {step === 1 && <Step1 form={form} patchForm={patchForm} />}
           {step === 2 && <Step2 form={form} patchForm={patchForm} fillDemo={fillDemo} />}
           {step === 3 && <Step3 form={form} patchForm={patchForm} />}
-          {step === 4 && <Step4 diag={diag} setDiag={setDiag} tooltipKey={tooltipKey} setTooltipKey={setTooltipKey} />}
+          {step === 4 && <Step4 diag={diag} setDiag={setDiag} tooltipKey={tooltipKey} setTooltipKey={setTooltipKey} originContent={form.originContent} />}
           {step === 5 && <Step5 form={form} patchForm={patchForm} />}
           {step === 6 && check && <Step6 check={check} form={form} onSubmit={handleSubmit} />}
 
@@ -255,7 +320,7 @@ export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu
         {/* Side panel: shows live diagnosis summary from step 4 onward */}
         {step >= 4 && (
           <div className="w-[220px] flex-shrink-0 sticky top-0">
-            <DiagSummaryPanel diag={diag} form={form} currentStep={step} />
+            <DiagSummaryPanel diag={diag} form={form} />
           </div>
         )}
       </div>
@@ -331,11 +396,98 @@ function Step1({ form, patchForm }: { form: FormData; patchForm: (p: Partial<For
   );
 }
 
+// ─── 원문 존 (Step2 최상단) ────────────────────────────────────────────────────
+// 유형에 따라 하나만 활성화: 프롬프트=텍스트박스, 자동화=파일 첨부, 맞춤형 AI=링크.
+// [AI로 초안 채우기]는 실제 AI 연동 없이 유형별 mock 초안을 폼에 채워 넣는다.
+
+function OriginZone({ form, patchForm }: { form: FormData; patchForm: (p: Partial<FormData>) => void }) {
+  const [showTip, setShowTip] = useState(false);
+  const draft = form.assetType ? AI_DRAFT_BY_TYPE[form.assetType] : undefined;
+
+  if (!form.assetType || !draft) return null;
+
+  function applyAiDraft() {
+    if (!draft) return;
+    patchForm({
+      description: draft.description,
+      useCases: draft.useCases,
+      ...(draft.processingSteps ? { processingSteps: draft.processingSteps } : {}),
+      aiDraftApplied: true,
+    });
+    toast.success("AI 초안을 채웠습니다.", { description: "내용을 확인하고 필요한 부분을 수정하세요.", duration: 2500 });
+  }
+
+  return (
+    <SectionCard>
+      <div className="flex items-center gap-1.5 mb-3">
+        <h3 className="text-[13px] font-semibold text-foreground">원문 붙여넣기</h3>
+        <div
+          className="relative flex items-center text-muted-foreground hover:text-foreground transition-colors"
+          onMouseEnter={() => setShowTip(true)}
+          onMouseLeave={() => setShowTip(false)}
+        >
+          <Info size={12} />
+          {showTip && (
+            <div className="absolute left-0 top-5 z-10 w-64 bg-foreground text-background text-[11px] leading-relaxed rounded-md px-3 py-2 shadow-lg">
+              붙여넣은 원문을 바탕으로 아래 항목의 초안을 대신 작성해드립니다.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {form.assetType === "PROMPT" && (
+        <textarea
+          className={textareaCls}
+          rows={5}
+          value={form.originContent}
+          onChange={e => patchForm({ originContent: e.target.value })}
+          placeholder="프롬프트 원문이나 관련 대화 내용을 붙여넣으세요."
+        />
+      )}
+
+      {form.assetType === "AUTOMATION" && (
+        form.originFileName ? (
+          <DemoFileCard name={form.originFileName} size="18 KB" type="워크플로 내보내기" />
+        ) : (
+          <button
+            onClick={() => patchForm({ originFileName: "meeting_workflow_export.json", originContent: MOCK_ORIGIN_TEXT.AUTOMATION! })}
+            className="flex items-center gap-1.5 h-8 px-4 rounded border border-dashed border-border text-[12px] text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
+          >
+            <Paperclip size={12} /> 파일 선택 (데모)
+          </button>
+        )
+      )}
+
+      {form.assetType === "ASSISTANT" && (
+        <input
+          className={inputCls}
+          placeholder="https://"
+          value={form.originLink}
+          onChange={e => {
+            const link = e.target.value;
+            patchForm({ originLink: link, originContent: link.trim() ? MOCK_ORIGIN_TEXT.ASSISTANT! : "" });
+          }}
+        />
+      )}
+
+      <button
+        onClick={applyAiDraft}
+        disabled={!form.originContent.trim()}
+        className="mt-3 flex items-center gap-1.5 h-8 px-4 rounded bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      >
+        <Sparkles size={13} /> AI로 초안 채우기
+      </button>
+    </SectionCard>
+  );
+}
+
 // ─── Step 2: 기본 정보 ────────────────────────────────────────────────────────
 
 function Step2({ form, patchForm, fillDemo }: { form: FormData; patchForm: (p: Partial<FormData>) => void; fillDemo: () => void }) {
   return (
     <>
+      <OriginZone form={form} patchForm={patchForm} />
+
       <SectionCard>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-[13px] font-semibold text-foreground">기본 정보</h3>
@@ -350,11 +502,11 @@ function Step2({ form, patchForm, fillDemo }: { form: FormData; patchForm: (p: P
           <Field label="자산 이름" required>
             <input className={inputCls} value={form.name} onChange={e => patchForm({ name: e.target.value })} placeholder="예: 주간 업무보고 자동 취합" />
           </Field>
-          <Field label="어떤 업무를 해결하나요?" required>
-            <textarea className={textareaCls} rows={3} value={form.description} onChange={e => patchForm({ description: e.target.value })} placeholder="이 자산이 어떤 문제를 해결하는지 간단히 설명해 주세요." />
+          <Field label="어떤 업무를 해결하나요?" required badge={form.aiDraftApplied ? <AiDraftBadge /> : null}>
+            <textarea className={`${textareaCls} ${form.aiDraftApplied ? "bg-primary/5" : ""}`} rows={3} value={form.description} onChange={e => patchForm({ description: e.target.value })} placeholder="이 자산이 어떤 문제를 해결하는지 간단히 설명해 주세요." />
           </Field>
-          <Field label="사용 예시" hint="실제 사용 시나리오나 대표 사례를 입력하세요.">
-            <textarea className={textareaCls} rows={3} value={form.useCases} onChange={e => patchForm({ useCases: e.target.value })} placeholder="예: 팀장이 금요일마다 팀원 보고를 수동으로 취합하는 시간을 줄이기 위해 사용합니다." />
+          <Field label="사용 예시" hint="실제 사용 시나리오나 대표 사례를 입력하세요." badge={form.aiDraftApplied ? <AiDraftBadge /> : null}>
+            <textarea className={`${textareaCls} ${form.aiDraftApplied ? "bg-primary/5" : ""}`} rows={3} value={form.useCases} onChange={e => patchForm({ useCases: e.target.value })} placeholder="예: 팀장이 금요일마다 팀원 보고를 수동으로 취합하는 시간을 줄이기 위해 사용합니다." />
           </Field>
           <Field label="이미지 첨부" hint="사용 화면 캡처나 참고 이미지를 첨부하세요.">
             <DemoFileCard name="example_screenshot.png" size="482 KB" type="PNG 이미지" icon={<ImageIcon size={13} className="text-primary" />} />
@@ -398,8 +550,8 @@ function Step3({ form, patchForm }: { form: FormData; patchForm: (p: Partial<For
             <Field label="연결 서비스" required hint="쉼표로 구분해 입력하세요.">
               <input className={inputCls} value={form.connectedServices} onChange={e => patchForm({ connectedServices: e.target.value })} placeholder="예: Google Forms, Google Sheets, Gemini API" />
             </Field>
-            <Field label="처리 단계" hint="각 단계를 순서대로 입력하세요.">
-              <textarea className={textareaCls} rows={5} value={form.processingSteps} onChange={e => patchForm({ processingSteps: e.target.value })} placeholder={"1. 폼 응답 수집\n2. 주간 업무 분류\n3. 통합 문서 초안 생성\n4. 사용자 확인\n5. 문서 반영"} />
+            <Field label="처리 단계" hint="각 단계를 순서대로 입력하세요." badge={form.aiDraftApplied ? <AiDraftBadge /> : null}>
+              <textarea className={`${textareaCls} ${form.aiDraftApplied ? "bg-primary/5" : ""}`} rows={5} value={form.processingSteps} onChange={e => patchForm({ processingSteps: e.target.value })} placeholder={"1. 폼 응답 수집\n2. 주간 업무 분류\n3. 통합 문서 초안 생성\n4. 사용자 확인\n5. 문서 반영"} />
             </Field>
             <Field label="읽기·생성·수정 동작">
               <div className="flex flex-wrap gap-2">
@@ -496,12 +648,13 @@ function Step3({ form, patchForm }: { form: FormData; patchForm: (p: Partial<For
 // ─── Step 4: 자가진단 ─────────────────────────────────────────────────────────
 
 function Step4({
-  diag, setDiag, tooltipKey, setTooltipKey,
+  diag, setDiag, tooltipKey, setTooltipKey, originContent,
 }: {
   diag: DiagState;
   setDiag: React.Dispatch<React.SetStateAction<DiagState>>;
   tooltipKey: string | null;
   setTooltipKey: (k: string | null) => void;
+  originContent: string;
 }) {
   return (
     <SectionCard title="자가진단">
@@ -512,6 +665,7 @@ function Step4({
         {DIAG_QUESTIONS.map(({ key, q, example, why }, i) => {
           const val = diag[key];
           const showTip = tooltipKey === key;
+          const scanHints = getScanHints(key, originContent);
           return (
             <div key={key} className="border border-border rounded-md p-4">
               <div className="flex items-start justify-between gap-3 mb-1">
@@ -530,6 +684,18 @@ function Step4({
                 </button>
               </div>
               <p className="text-[11px] text-muted-foreground mb-3">{example}</p>
+              {scanHints.length > 0 && (
+                <div className="mb-3 flex flex-col gap-1.5">
+                  <span className="inline-flex items-center gap-1 self-start px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
+                    <Bot size={10} /> AI가 안내합니다
+                  </span>
+                  {scanHints.map(h => (
+                    <p key={h} className="text-[11px] text-muted-foreground">
+                      본문에서 <span className="font-medium text-foreground">'{h}'</span> 표현이 감지됐어요
+                    </p>
+                  ))}
+                </div>
+              )}
               <div className="flex gap-2">
                 {(["yes", "no", "unknown"] as const).map(opt => (
                   <button
@@ -713,24 +879,13 @@ function Step6({
 
 // ─── Diag summary panel ───────────────────────────────────────────────────────
 
-function DiagSummaryPanel({ diag, form, currentStep }: { diag: DiagState; form: FormData; currentStep: number }) {
-  const flags: string[] = [];
-  if (diag.q1 === "yes") flags.push("개인정보 처리");
-  if (diag.q2 === "yes") flags.push("외부 AI 전송");
-  if (diag.q3 === "yes") flags.push("사내 문서 읽기");
-  if (diag.q4 === "yes") flags.push("문서 수정/메일");
-  if (diag.q5 === "yes") flags.push("자동 실행");
-  if (diag.q6 === "yes") flags.push("반복 실행");
-  if (currentStep >= 5 && form.envSelections.includes("잘 모르겠음")) flags.push("환경 미확인");
-
-  const deepFlags = flags.filter(f => f !== "사내 문서 읽기" && f !== "환경 미확인");
-
-  const previewResult: ReviewResult =
-    deepFlags.length > 0 ? "DEEP_REVIEW"
-    : flags.includes("사내 문서 읽기") ? "OPERATION_REVIEW"
-    : "AUTO_REGISTER";
-
-  const cfg = RESULT_CONFIG[previewResult];
+// runPreCheck(=calculateReviewPath)를 그대로 재사용한다 — Step6 최종 결과와
+// 계산 로직을 절대 갈라뜨리지 않기 위해서다. diag/form은 부모(AssetRegisterScreen)의
+// state이므로 자가진단 버튼을 누르는 즉시 이 컴포넌트가 새 값으로 리렌더되어
+// 예상 심의 경로가 실시간으로 바뀐다.
+function DiagSummaryPanel({ diag, form }: { diag: DiagState; form: FormData }) {
+  const check = runPreCheck(form, diag);
+  const cfg = RESULT_CONFIG[check.result];
 
   return (
     <div className="bg-card border border-border rounded-md overflow-hidden">
@@ -738,24 +893,38 @@ function DiagSummaryPanel({ diag, form, currentStep }: { diag: DiagState; form: 
         <p className="text-[11px] font-semibold text-foreground">현재까지 감지된 검토 사항</p>
       </div>
       <div className="px-4 py-3">
-        {flags.length === 0 ? (
+        {check.reasons.length === 0 ? (
           <p className="text-[11px] text-muted-foreground">아직 감지된 항목이 없습니다.</p>
         ) : (
           <ul className="flex flex-col gap-1.5">
-            {flags.map(f => (
-              <li key={f} className="flex items-center gap-1.5 text-[11px] text-foreground">
+            {check.reasons.map(r => (
+              <li key={r} className="flex items-center gap-1.5 text-[11px] text-foreground">
                 <div className="w-1.5 h-1.5 rounded-full bg-orange-400 flex-shrink-0" />
-                {f}
+                {r}
               </li>
             ))}
           </ul>
         )}
-        {flags.length > 0 && (
-          <div className={`mt-3 flex items-center gap-1.5 px-2 py-1.5 rounded text-[10px] font-medium border ${cfg.color}`}>
-            <Clock size={10} />
-            예상: {cfg.label}
-          </div>
+        {(check.costReview || check.operatorCheck) && (
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {check.costReview && (
+              <li className="flex items-center gap-1.5 text-[11px] text-foreground">
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />
+                비용 검토 필요
+              </li>
+            )}
+            {check.operatorCheck && (
+              <li className="flex items-center gap-1.5 text-[11px] text-foreground">
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />
+                운영자 확인 필요
+              </li>
+            )}
+          </ul>
         )}
+        <div className={`mt-3 flex items-center gap-1.5 px-2 py-1.5 rounded text-[10px] font-medium border ${cfg.color}`}>
+          <Clock size={10} />
+          예상: {cfg.label}
+        </div>
       </div>
     </div>
   );

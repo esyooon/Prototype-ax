@@ -3,11 +3,12 @@ import { toast } from "sonner";
 import {
   ArrowLeft, CheckCircle2, AlertTriangle,
   RotateCcw, Star, MessageSquareWarning, Users, Building2,
-  Activity, TrendingUp, PlusCircle, StopCircle,
+  Activity, TrendingUp, PlusCircle, StopCircle, Bot,
 } from "lucide-react";
 import { useAssets } from "../context/AssetContext";
 import { ASSET_STATUS_LABELS, ASSET_STATUS_CHIP } from "../data/types";
-import type { AIAsset, AssetStatus, IssueTicket } from "../data/types";
+import type { AIAsset, AssetStatus, IssueTicket, SelfDiagnosisAnswers, DiagQuestionAnswer } from "../data/types";
+import { DIAG_QUESTION_TEXT, DIAG_QUESTION_ORDER } from "../data/reviewPolicy";
 
 // ─── Demo registrant ID ───────────────────────────────────────────────────────
 
@@ -229,6 +230,7 @@ export default function MyAssetsScreen({ onOpenDetail }: { onOpenDetail?: (id: s
         tickets={tickets[selectedAsset.id] ?? []}
         onReplyTicket={(ticketId, reply) => dispatch({ type: "REPLY_TICKET", assetId: selectedAsset.id, ticketId, reply })}
         onApplyTicket={(ticketId) => dispatch({ type: "APPLY_TICKET", assetId: selectedAsset.id, ticketId })}
+        onApplyAssetUpdate={(patch) => dispatch({ type: "PATCH_ASSET", id: selectedAsset.id, patch })}
         onViewInPlayground={onOpenDetail ? () => { onOpenDetail(selectedAsset.id); setSelectedId(null); } : undefined}
         onBack={() => setSelectedId(null)}
       />
@@ -501,7 +503,7 @@ function PrePublishDetail({
 // ─── Published detail view ────────────────────────────────────────────────────
 
 function PublishedDetail({
-  asset, approvalConditions, checkingInfo, tickets, onReplyTicket, onApplyTicket, onViewInPlayground, onBack,
+  asset, approvalConditions, checkingInfo, tickets, onReplyTicket, onApplyTicket, onApplyAssetUpdate, onViewInPlayground, onBack,
 }: {
   asset: AIAsset;
   approvalConditions: string[];
@@ -509,6 +511,7 @@ function PublishedDetail({
   tickets: IssueTicket[];
   onReplyTicket: (ticketId: string, reply: string) => void;
   onApplyTicket: (ticketId: string) => void;
+  onApplyAssetUpdate: (patch: { description: string; version: string }) => void;
   onViewInPlayground?: () => void;
   onBack: () => void;
 }) {
@@ -517,6 +520,7 @@ function PublishedDetail({
   const detail = getStatusDetail(asset, { revisionNotes: [], checkingInfo });
   const u = asset.usage;
   const [ticketListOpen, setTicketListOpen] = useState(false);
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
 
   const usageMetrics = [
     { icon: <Users size={14} className="text-primary" />,               label: "누적 사용자",                   value: `${u.totalCount.toLocaleString()}명` },
@@ -615,7 +619,7 @@ function PublishedDetail({
             </div>
             <div className="px-4 py-4 flex flex-col gap-2.5">
               <button
-                onClick={() => toast.info("새 버전 등록", { description: "자산 등록 화면에서 새 버전을 등록하세요.", duration: 3000 })}
+                onClick={() => setUpdateModalOpen(true)}
                 className="w-full flex items-center gap-2 h-9 px-3 rounded bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90 transition-colors"
               >
                 <PlusCircle size={13} /> 자산 업데이트
@@ -670,6 +674,14 @@ function PublishedDetail({
               duration: 3000,
             });
           }}
+        />
+      )}
+
+      {updateModalOpen && (
+        <AssetUpdateModal
+          asset={asset}
+          onClose={() => setUpdateModalOpen(false)}
+          onApply={onApplyAssetUpdate}
         />
       )}
     </div>
@@ -785,6 +797,254 @@ function TicketListModal({
               </div>
             ))
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 자산 업데이트: 좌우 비교 ────────────────────────────────────────────────────
+// 왼쪽 = 게시 중인 내용(심의 통과본, 읽기 전용) / 오른쪽 = 수정 중인 내용(편집
+// 가능, 달라진 항목은 테두리·배경으로 하이라이트). 자가진단 답이나 연결 목록이
+// 바뀌면 "동작 변경"(제출 → 변경분 심의 → 반영, 기존 버전 게시 유지)으로,
+// 그 외 내용만 바뀌면 "내용 수정"(검사 → 반영, 즉시 반영)으로 갈라진다.
+// 전부 mock — 실제 AI·저장 로직 없음. "즉시 반영"만 PATCH_ASSET으로 실제
+// description·version을 갱신해 좌우 비교가 다음에도 의미 있게 보이도록 한다.
+
+const updateModalInputCls = "w-full h-8 px-3 rounded border border-border bg-background text-[12px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary";
+const updateModalTextareaCls = "w-full px-3 py-2 rounded border border-border bg-background text-[12px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none";
+
+const MOCK_CONNECTED_ITEMS: string[] = ["Google Sheets", "Gemini API"];
+const MOCK_NEW_CONNECTED_ITEM = "Slack";
+const FALLBACK_DIAG: SelfDiagnosisAnswers = { q1: "no", q2: "no", q3: "no", q4: "no", q5: "no", q6: "no" };
+const DIAG_ANSWER_LABEL: Record<DiagQuestionAnswer, string> = { yes: "예", no: "아니오", unknown: "잘 모르겠음" };
+
+function bumpVersion(version: string): string {
+  const parts = version.split(".").map(Number);
+  while (parts.length < 3) parts.push(0);
+  parts[2] = (parts[2] || 0) + 1;
+  return parts.join(".");
+}
+
+function UpdateJourney({ steps, note, tone }: { steps: string[]; note: string; tone: "success" | "warning" }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center">
+        {steps.map((s, i) => (
+          <div key={s} className="flex items-center">
+            <div className="flex items-center gap-1.5">
+              <div className="w-5 h-5 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-[10px] font-semibold flex-shrink-0">
+                {i + 1}
+              </div>
+              <span className="text-[11px] text-foreground whitespace-nowrap">{s}</span>
+            </div>
+            {i < steps.length - 1 && <div className="w-6 h-px bg-border mx-2 flex-shrink-0" />}
+          </div>
+        ))}
+      </div>
+      <p className={`text-[11px] ${tone === "warning" ? "text-orange-600" : "text-green-700"}`}>{note}</p>
+    </div>
+  );
+}
+
+function AssetUpdateModal({
+  asset, onClose, onApply,
+}: {
+  asset: AIAsset;
+  onClose: () => void;
+  onApply: (patch: { description: string; version: string }) => void;
+}) {
+  const originalDiag = asset.selfDiagnosis ?? FALLBACK_DIAG;
+
+  const [description, setDescription] = useState(asset.description);
+  const [connectedItems, setConnectedItems] = useState<string[]>(MOCK_CONNECTED_ITEMS);
+  const [diagAnswers, setDiagAnswers] = useState<SelfDiagnosisAnswers>(originalDiag);
+  const [whatChanged, setWhatChanged] = useState("");
+
+  const descriptionChanged = description.trim() !== asset.description.trim();
+  const connectionAdded = connectedItems.length > MOCK_CONNECTED_ITEMS.length;
+  const diagChanged = DIAG_QUESTION_ORDER.some(k => diagAnswers[k] !== originalDiag[k]);
+  const isBehaviorChange = diagChanged || connectionAdded;
+
+  const summary = [
+    connectionAdded ? `연결 문서 ${connectedItems.length - MOCK_CONNECTED_ITEMS.length}건 추가` : "연결 목록 변화 없음",
+    diagChanged ? "자가진단 답 변화 있음" : "자가진단 답 변화 없음",
+    "→",
+    isBehaviorChange ? "동작 변경, 심의 후 반영 예상" : "내용 수정, 즉시 반영 예상",
+  ].join(" / ");
+
+  function handleSubmit() {
+    if (!whatChanged.trim()) return;
+    if (isBehaviorChange) {
+      onClose();
+      toast.warning("변경분 심의가 접수되었습니다.", {
+        description: "심의가 끝날 때까지 기존 버전이 그대로 게시됩니다.",
+        duration: 3500,
+      });
+    } else {
+      const nextVersion = bumpVersion(asset.version);
+      onApply({ description, version: nextVersion });
+      onClose();
+      toast.success("변경사항이 반영되었습니다.", {
+        description: `v${nextVersion}으로 즉시 반영되었습니다.`,
+        duration: 3500,
+      });
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative z-10 bg-card rounded-lg shadow-xl w-full max-w-[980px] max-h-[92vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div>
+            <h3 className="text-[15px] font-semibold text-foreground">자산 업데이트</h3>
+            <p className="text-[11px] text-muted-foreground mt-0.5">{asset.name} · 현재 v{asset.version}</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-[20px] leading-none">×</button>
+        </div>
+
+        <div className="px-6 py-5 grid grid-cols-2 gap-5">
+          {/* 왼쪽: 게시 중인 내용 (읽기 전용) */}
+          <div className="flex flex-col gap-4">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">게시 중인 내용 (심의 통과본)</p>
+            <div className="border border-border rounded-md p-3 bg-muted/20">
+              <p className="text-[11px] text-muted-foreground mb-1">설명</p>
+              <p className="text-[12px] text-foreground leading-relaxed">{asset.description}</p>
+            </div>
+            <div className="border border-border rounded-md p-3 bg-muted/20">
+              <p className="text-[11px] text-muted-foreground mb-1.5">연결 목록</p>
+              <div className="flex flex-wrap gap-1.5">
+                {MOCK_CONNECTED_ITEMS.map(item => (
+                  <span key={item} className="px-2 py-0.5 rounded text-[11px] bg-muted text-foreground">{item}</span>
+                ))}
+              </div>
+            </div>
+            <div className="border border-border rounded-md p-3 bg-muted/20">
+              <p className="text-[11px] text-muted-foreground mb-1.5">자가진단 답</p>
+              <ul className="flex flex-col gap-1.5">
+                {DIAG_QUESTION_ORDER.map(k => (
+                  <li key={k} className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="text-muted-foreground">{DIAG_QUESTION_TEXT[k]}</span>
+                    <span className="text-foreground font-medium flex-shrink-0">{DIAG_ANSWER_LABEL[originalDiag[k]]}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          {/* 오른쪽: 수정하는 내용 (편집 가능, 달라진 부분 하이라이트) */}
+          <div className="flex flex-col gap-4">
+            <p className="text-[11px] font-semibold text-primary uppercase tracking-wider">수정하는 내용</p>
+            <div className={`border rounded-md p-3 transition-colors ${descriptionChanged ? "border-primary bg-primary/5" : "border-border"}`}>
+              <p className="text-[11px] text-muted-foreground mb-1">설명</p>
+              <textarea className={updateModalTextareaCls} rows={3} value={description} onChange={e => setDescription(e.target.value)} />
+            </div>
+            <div className={`border rounded-md p-3 transition-colors ${connectionAdded ? "border-primary bg-primary/5" : "border-border"}`}>
+              <p className="text-[11px] text-muted-foreground mb-1.5">연결 목록</p>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {connectedItems.map(item => (
+                  <span
+                    key={item}
+                    className={`px-2 py-0.5 rounded text-[11px] ${
+                      MOCK_CONNECTED_ITEMS.includes(item) ? "bg-muted text-foreground" : "bg-primary/15 text-primary font-medium"
+                    }`}
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
+              {!connectionAdded && (
+                <button
+                  onClick={() => setConnectedItems(prev => [...prev, MOCK_NEW_CONNECTED_ITEM])}
+                  className="h-7 px-3 rounded border border-dashed border-border text-[11px] text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
+                >
+                  + {MOCK_NEW_CONNECTED_ITEM} 연결 (데모)
+                </button>
+              )}
+            </div>
+            <div className={`border rounded-md p-3 transition-colors ${diagChanged ? "border-primary bg-primary/5" : "border-border"}`}>
+              <p className="text-[11px] text-muted-foreground mb-1.5">자가진단 답</p>
+              <div className="flex flex-col gap-2">
+                {DIAG_QUESTION_ORDER.map(k => (
+                  <div key={k} className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-foreground flex-1">{DIAG_QUESTION_TEXT[k]}</span>
+                    <div className="flex gap-1 flex-shrink-0">
+                      {(["yes", "no", "unknown"] as const).map(opt => (
+                        <button
+                          key={opt}
+                          onClick={() => setDiagAnswers(prev => ({ ...prev, [k]: opt }))}
+                          className={`h-6 px-2 rounded-full text-[10px] border font-medium transition-colors ${
+                            diagAnswers[k] === opt
+                              ? opt !== originalDiag[k]
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-foreground/80 text-background border-foreground/80"
+                              : "bg-card border-border text-foreground hover:bg-muted"
+                          }`}
+                        >
+                          {DIAG_ANSWER_LABEL[opt]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 변경 사항 (AI가 정리한 내용) */}
+        <div className="px-6">
+          <div className="border border-border rounded-md p-4 bg-muted/20">
+            <span className="inline-flex items-center gap-1 mb-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
+              <Bot size={10} /> AI가 정리한 내용입니다
+            </span>
+            <p className="text-[12px] text-foreground leading-relaxed">{summary}</p>
+          </div>
+        </div>
+
+        {/* 무엇이 바뀌었나요 */}
+        <div className="px-6 pt-4">
+          <label className="text-[12px] font-medium text-foreground">
+            무엇이 바뀌었나요? <span className="text-red-500">*</span>
+          </label>
+          <input
+            className={`${updateModalInputCls} mt-1.5`}
+            value={whatChanged}
+            onChange={e => setWhatChanged(e.target.value)}
+            placeholder="예: 연결 문서를 추가하고 설명을 보완했습니다."
+          />
+          <p className="text-[11px] text-muted-foreground mt-1">이 내용은 변경 이력에 기록됩니다.</p>
+        </div>
+
+        {/* 분기: 내용 수정(2단계, 즉시 반영) / 동작 변경(3단계, 심의) */}
+        <div className="px-6 pt-5">
+          {isBehaviorChange ? (
+            <UpdateJourney
+              steps={["제출", "변경분 심의", "반영"]}
+              note="동작 변경 — 심의가 끝날 때까지 기존 버전이 게시된 상태로 유지됩니다."
+              tone="warning"
+            />
+          ) : (
+            <UpdateJourney
+              steps={["검사", "반영"]}
+              note="내용 수정 — 검사를 통과하면 즉시 반영됩니다."
+              tone="success"
+            />
+          )}
+        </div>
+
+        <div className="px-6 py-5 flex gap-2">
+          <button onClick={onClose} className="flex-1 h-9 rounded border border-border text-[13px] text-foreground hover:bg-muted transition-colors">
+            취소
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={!whatChanged.trim()}
+            className="flex-1 h-9 rounded bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {isBehaviorChange ? "제출하기" : "반영하기"}
+          </button>
         </div>
       </div>
     </div>

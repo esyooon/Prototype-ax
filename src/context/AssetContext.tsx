@@ -44,7 +44,7 @@ type AssetAction =
   | { type: "ADD_RECENT"; id: string }
   | { type: "SET_REVISION_NOTES"; id: string; notes: string[] }
   | { type: "SET_APPROVAL_CONDITIONS"; id: string; conditions: string[] }
-  | { type: "PATCH_ASSET"; id: string; patch: Partial<Pick<AIAsset, "status" | "showOnCatalog" | "visibility" | "version">> }
+  | { type: "PATCH_ASSET"; id: string; patch: Partial<Pick<AIAsset, "status" | "showOnCatalog" | "visibility" | "version" | "description">> }
   | { type: "REPORT_ERROR"; id: string; errorType: string }
   | { type: "SUBMIT_TICKET"; assetId: string; assetName: string; assetVersion: string; summary: string }
   | { type: "REPLY_TICKET"; assetId: string; ticketId: string; reply: string }
