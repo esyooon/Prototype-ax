@@ -5,11 +5,11 @@ import {
   Copy, ExternalLink, PlayCircle, Link2, BookOpenText, Settings2,
   AlertTriangle, CheckCircle2, XCircle, ShieldAlert,
   ChevronRight, Clock, ArrowRight, Layers,
-  MessageSquarePlus,
+  MessageSquarePlus, Bot,
 } from "lucide-react";
 import { useAssets } from "../context/AssetContext";
 import { getAssetById } from "../data/store";
-import type { AIAsset, AssetType, CostMeasurementType } from "../data/types";
+import type { AIAsset, AssetType, CostMeasurementType, IssueTicket } from "../data/types";
 import { ASSET_TYPE_LABELS } from "../data/types";
 import TrustBadges from "./TrustBadges";
 
@@ -41,15 +41,6 @@ const ACTION_ICONS: Record<string, React.ReactNode> = {
   "자료 확인": <BookOpenText size={15} />,
   "내용 확인": <BookOpenText size={15} />,
 };
-
-const ERROR_TYPES = [
-  "결과가 부정확함",
-  "실행되지 않음",
-  "권한·접근 문제",
-  "사용 방법이 이해되지 않음",
-  "데이터·보안 우려",
-  "기타",
-];
 
 // ─── 오류 제보 처리 이력 (mock) ───────────────────────────────────────────────
 // 제보 원문·대화 내용은 노출하지 않고, 유형과 반영 버전만 보여준다.
@@ -101,6 +92,19 @@ function buildMockPrompt(asset: AIAsset): string {
   return `[역할]\n${asset.description}\n\n[입력]\n${inputs}\n\n[출력 형식]\n${outputs}\n\n[주의사항]\n${cautions || "• 결과는 담당자가 검토 후 사용하세요"}`;
 }
 
+// ─── 내 문의 상태 (사용자 쪽 3단계 표시) ──────────────────────────────────────
+// OPEN="AI 안내 완료", ANSWERED="등록자 확인 중", APPLIED="반영됨(버전)".
+const TICKET_USER_STATUS: Record<IssueTicket["status"], { label: string; cls: string }> = {
+  OPEN:     { label: "AI 안내 완료",   cls: "bg-muted text-muted-foreground" },
+  ANSWERED: { label: "등록자 확인 중", cls: "bg-blue-50 text-blue-600" },
+  APPLIED:  { label: "반영됨",         cls: "bg-primary/10 text-primary" },
+};
+
+function ticketUserStatusLabel(t: IssueTicket): string {
+  const base = TICKET_USER_STATUS[t.status].label;
+  return t.status === "APPLIED" ? `${base} (v${t.appliedVersion})` : base;
+}
+
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 export default function AssetDetailScreen({
@@ -112,12 +116,11 @@ export default function AssetDetailScreen({
   onBack: () => void;
   onOpenBadgeGuide?: () => void;
 }) {
-  const { assets, dispatch } = useAssets();
+  const { assets, tickets, dispatch } = useAssets();
   const asset = getAssetById(assets, assetId);
+  const myTickets = tickets[assetId] ?? [];
 
-  const [errorModalOpen,   setErrorModalOpen]   = useState(false);
-  const [issueChatOpen,    setIssueChatOpen]    = useState(false);
-  const [chatSummary,      setChatSummary]      = useState<string | null>(null);
+  const [issueModalOpen,   setIssueModalOpen]   = useState(false);
   const [simOpen,          setSimOpen]          = useState(false);
   const [historyOpen,      setHistoryOpen]      = useState(false);
 
@@ -422,10 +425,29 @@ export default function AssetDetailScreen({
               <div className="text-[12px] text-muted-foreground">{asset.cost.note}</div>
             </div>
 
+            {/* 내 문의 (사용자가 넣은 문의의 진행 상태) */}
+            {myTickets.length > 0 && (
+              <div className="px-5 pt-4 pb-4 border-b border-border">
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                  내 문의
+                </p>
+                <div className="flex flex-col gap-2">
+                  {myTickets.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-muted-foreground">{t.createdAt}</span>
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${TICKET_USER_STATUS[t.status].cls}`}>
+                        {ticketUserStatusLabel(t)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* 액션 */}
             <div className="px-5 pt-3 pb-4 space-y-2">
               <button
-                onClick={() => setIssueChatOpen(true)}
+                onClick={() => setIssueModalOpen(true)}
                 className="w-full flex items-center gap-2 h-8 px-3 rounded border border-border text-[12px] text-foreground hover:bg-muted transition-colors"
               >
                 <MessageSquarePlus size={13} className="text-muted-foreground" /> 문제가 있나요?
@@ -435,23 +457,20 @@ export default function AssetDetailScreen({
         </aside>
       </div>
 
-      {/* ── 모달: 오류 제보 (기존 폼 — 대화가 미해결·전달 동의로 끝나면 요약과 함께 다시 연결) ── */}
-      {errorModalOpen && (
-        <ErrorReportModal
+      {/* ── 모달: 문제가 있나요? (버튼 분기형 안내 → 신고 폼) ── */}
+      {issueModalOpen && (
+        <IssueHelpModal
           asset={asset}
-          initialDetail={chatSummary ?? undefined}
-          onClose={() => { setErrorModalOpen(false); setChatSummary(null); }}
-          onReport={(errorType) => dispatch({ type: "REPORT_ERROR", id: asset.id, errorType })}
-        />
-      )}
-      {/* ── 모달: 문제가 있나요? (대화 UI) ── */}
-      {issueChatOpen && (
-        <IssueChatModal
-          onClose={() => setIssueChatOpen(false)}
-          onEscalate={(summary) => {
-            setChatSummary(summary);
-            setIssueChatOpen(false);
-            setErrorModalOpen(true);
+          onClose={() => setIssueModalOpen(false)}
+          onSubmitted={(summary) => {
+            dispatch({ type: "REPORT_ERROR", id: asset.id, errorType: "결과가 부정확함" });
+            dispatch({
+              type: "SUBMIT_TICKET",
+              assetId: asset.id,
+              assetName: asset.name,
+              assetVersion: asset.version,
+              summary,
+            });
           }}
         />
       )}
@@ -903,243 +922,158 @@ function PanelRow({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-// ─── 오류 제보 모달 ───────────────────────────────────────────────────────────
+// ─── 문제가 있나요? 안내 모달 (버튼 분기형 MVP — 자유 대화형 아님) ─────────────
+// 창 상태는 step 하나로만 관리한다: menu(초기) → access|howto|checkPrompt(버튼선택)
+// → report(신고폼). checkPrompt에서 "아니오"는 access로 되돌리고 신고로 넘어가지
+// 않는다 — 신고 폼은 로그인 확인("예")을 거친 경우에만 열린다.
 
-function ErrorReportModal({
-  asset, onClose, onReport, initialDetail,
+type IssueStep = "menu" | "access" | "howto" | "checkPrompt" | "report";
+
+function buildIssueSummary(asset: AIAsset): string {
+  const ts = asset.typeSpecific as Record<string, string[]>;
+  const inputSample  = (ts.inputFields  ?? [])[0] ?? "입력값";
+  const outputSample = (ts.outputFields ?? [])[0] ?? "결과";
+  return [
+    "[AI가 정리한 신고 내용]",
+    "선택한 문의: 결과가 이상해요",
+    "환경 확인: 필요 계정으로 로그인된 상태에서 재현됨 (예)",
+    "",
+    `입력 예시: ${inputSample} 항목에 평소와 같은 값을 입력함`,
+    `출력 예시: ${outputSample} 결과가 예상과 다르게 표시됨`,
+  ].join("\n");
+}
+
+function IssueHelpModal({
+  asset, onClose, onSubmitted,
 }: {
   asset: AIAsset;
   onClose: () => void;
-  onReport?: (errorType: string) => void;
-  initialDetail?: string;
+  onSubmitted: (summary: string) => void;
 }) {
-  const [errorType, setErrorType] = useState("");
-  const [situation, setSituation] = useState("");
-  const [detail,    setDetail]    = useState(initialDetail ?? "");
+  const [step, setStep] = useState<IssueStep>("menu");
+  const [detail, setDetail] = useState(() => buildIssueSummary(asset));
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    onReport?.(errorType);
+    onSubmitted(detail);
     onClose();
-    const isLive = asset.status === "PUBLISHED" || asset.status === "CONDITIONAL_APPROVAL";
-    toast.success("오류 제보가 접수되었습니다.", {
-      description: isLive
-        ? `${asset.name} · 확인 중 상태로 전환되었습니다.`
-        : `${asset.name} · ${errorType || "유형 미선택"}`,
-      duration: 3500,
+    toast.success("문의가 접수되었습니다.", {
+      description: `${asset.name} 등록자에게 전달되었습니다.`,
+      duration: 3000,
     });
   }
 
   return (
     <ModalOverlay onClose={onClose}>
-      <div className="bg-card rounded-lg shadow-xl w-[480px] max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h3 className="text-[15px] font-semibold text-foreground">오류 제보</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-[20px] leading-none">×</button>
-        </div>
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
-          <div className="text-[12px] text-muted-foreground bg-muted/30 rounded px-3 py-2">
-            대상 자산: <span className="font-medium text-foreground">{asset.name}</span>
+      <div className="bg-card rounded-lg shadow-xl w-[440px] max-h-[90vh] overflow-y-auto flex flex-col">
+        <div className="px-6 py-4 border-b border-border">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[12px] text-muted-foreground">
+              {asset.name} · v{asset.version}에 대한 문의
+            </p>
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-[20px] leading-none flex-shrink-0">×</button>
           </div>
-          <div>
-            <label className="block text-[12px] font-medium text-foreground mb-1.5">오류 유형</label>
-            <select
-              value={errorType}
-              onChange={(e) => setErrorType(e.target.value)}
-              className="w-full h-9 px-3 rounded border border-border bg-background text-[13px] text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-            >
-              <option value="">선택하세요</option>
-              {ERROR_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-[12px] font-medium text-foreground mb-1.5">발생 상황</label>
-            <input
-              type="text"
-              value={situation}
-              onChange={(e) => setSituation(e.target.value)}
-              placeholder="어떤 상황에서 발생했나요?"
-              className="w-full h-9 px-3 rounded border border-border bg-background text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-            />
-          </div>
-          <div>
-            <label className="block text-[12px] font-medium text-foreground mb-1.5">상세 내용</label>
-            <textarea
-              value={detail}
-              onChange={(e) => setDetail(e.target.value)}
-              placeholder="발생한 문제를 구체적으로 설명해 주세요."
-              rows={4}
-              className="w-full px-3 py-2 rounded border border-border bg-background text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
-            />
-          </div>
-          <div>
-            <label className="block text-[12px] font-medium text-foreground mb-1.5">첨부 파일</label>
-            <div className="h-16 border-2 border-dashed border-border rounded flex items-center justify-center text-[12px] text-muted-foreground">
-              파일 첨부 (데모 UI — 실제 업로드 미지원)
-            </div>
-          </div>
-          <div className="flex gap-2 pt-1">
-            <button type="button" onClick={onClose}
-              className="flex-1 h-9 rounded border border-border text-[13px] text-foreground hover:bg-muted transition-colors">
-              취소
-            </button>
-            <button type="submit"
-              className="flex-1 h-9 rounded bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 transition-colors">
-              제출
-            </button>
-          </div>
-        </form>
-      </div>
-    </ModalOverlay>
-  );
-}
-
-// ─── 문제가 있나요? 대화 모달 (mock — 실제 AI 연동 없음) ───────────────────────
-// 대화 흐름: 초기 → 대화중 → 해결 / 미해결. 해결되면 아무것도 등록자에게
-// 전달되지 않고, 미해결이며 사용자가 동의하면 기존 오류 제보 폼을 대화 요약이
-// 채워진 채로 다시 연다 — 실제 판정은 AI가 아니라 사용자가 버튼으로 직접 답한다.
-
-type ChatRole = "ai" | "user";
-interface ChatMessage { role: ChatRole; text: string }
-type ChatStage = "initial" | "chatting" | "resolved" | "declined";
-
-const CHAT_INTRO = "어떤 상황인지 알려주세요. 지금 어디서 막히셨어요?";
-
-const MOCK_ACK_REPLIES = [
-  "말씀 감사해요. 혹시 새로고침 후 다시 시도해보셨을까요?",
-  "그렇군요. 입력하신 값이나 권한 설정도 한 번 확인해보셨어요?",
-  "안내드린 방법대로 해보셨는데도 그러셨다는 거군요, 확인했어요.",
-];
-
-const CHAT_ESCALATE_PROMPT = "이건 자산 자체를 확인해야 할 것 같아요. 등록자에게 전달할까요?";
-
-function buildMockSummary(messages: ChatMessage[]): string {
-  const userText = messages.filter((m) => m.role === "user").map((m) => m.text).join(" / ");
-  return `[AI 상담 요약] 사용자 문의: "${userText}" — 안내된 방법으로도 해결되지 않아 자산 자체 확인이 필요해 보입니다.`;
-}
-
-function IssueChatModal({ onClose, onEscalate }: { onClose: () => void; onEscalate: (summary: string) => void }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([{ role: "ai", text: CHAT_INTRO }]);
-  const [stage, setStage] = useState<ChatStage>("initial");
-  const [awaitingEscalationReply, setAwaitingEscalationReply] = useState(false);
-  const [input, setInput] = useState("");
-
-  function handleSend(e: React.FormEvent) {
-    e.preventDefault();
-    const text = input.trim();
-    if (!text) return;
-
-    const userTurn = messages.filter((m) => m.role === "user").length;
-    const ack = MOCK_ACK_REPLIES[Math.min(userTurn, MOCK_ACK_REPLIES.length - 1)];
-
-    setMessages((prev) => [...prev, { role: "user", text }, { role: "ai", text: ack }]);
-    setStage("chatting");
-    setInput("");
-  }
-
-  function handleResolved() {
-    setMessages((prev) => [...prev, { role: "ai", text: "다행이에요! 도움이 더 필요하시면 언제든 다시 말씀해 주세요." }]);
-    setStage("resolved");
-  }
-
-  function handleUnresolved() {
-    setMessages((prev) => [...prev, { role: "ai", text: CHAT_ESCALATE_PROMPT }]);
-    setAwaitingEscalationReply(true);
-  }
-
-  function handleDeclineEscalation() {
-    setMessages((prev) => [...prev, { role: "ai", text: "알겠습니다. 필요하시면 다시 문의해 주세요." }]);
-    setAwaitingEscalationReply(false);
-    setStage("declined");
-  }
-
-  function handleAgreeEscalation() {
-    onEscalate(buildMockSummary(messages));
-  }
-
-  const showResolveButtons = stage === "chatting" && !awaitingEscalationReply;
-  const inputDisabled = stage === "resolved" || stage === "declined";
-
-  return (
-    <ModalOverlay onClose={onClose}>
-      <div className="bg-card rounded-lg shadow-xl w-[440px] flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h3 className="text-[15px] font-semibold text-foreground">문제가 있나요?</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-[20px] leading-none">×</button>
+          <span className="inline-flex items-center gap-1 mt-1.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
+            <Bot size={11} /> AI가 안내합니다
+          </span>
         </div>
 
-        <div className="px-6 py-5 flex flex-col gap-3 max-h-[360px] overflow-y-auto">
-          {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[80%] rounded-lg px-3 py-2 text-[13px] leading-relaxed ${
-                m.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-foreground"
-              }`}>
-                {m.text}
+        <div className="px-6 py-5 flex flex-col gap-4">
+          {step === "menu" && (
+            <>
+              <p className="text-[13px] text-foreground leading-relaxed">
+                어디서 막히셨어요? 지금 상황을 알려주세요.
+              </p>
+              <div className="flex flex-col gap-2">
+                <button onClick={() => setStep("access")}
+                  className="w-full h-9 px-3 rounded border border-border text-[13px] text-foreground hover:bg-muted transition-colors text-left">
+                  접속이 안 돼요
+                </button>
+                <button onClick={() => setStep("howto")}
+                  className="w-full h-9 px-3 rounded border border-border text-[13px] text-foreground hover:bg-muted transition-colors text-left">
+                  어떻게 쓰는지 모르겠어요
+                </button>
+                <button onClick={() => setStep("checkPrompt")}
+                  className="w-full h-9 px-3 rounded border border-border text-[13px] text-foreground hover:bg-muted transition-colors text-left">
+                  결과가 이상해요
+                </button>
               </div>
-            </div>
-          ))}
-
-          {showResolveButtons && (
-            <div className="flex gap-2 justify-start pl-1">
-              <button
-                onClick={handleResolved}
-                className="h-8 px-3 rounded border border-border text-[12px] text-foreground hover:bg-muted transition-colors"
-              >
-                해결됐어요
-              </button>
-              <button
-                onClick={handleUnresolved}
-                className="h-8 px-3 rounded border border-border text-[12px] text-foreground hover:bg-muted transition-colors"
-              >
-                아직이요
-              </button>
-            </div>
+            </>
           )}
 
-          {awaitingEscalationReply && (
-            <div className="flex gap-2 justify-start pl-1">
-              <button
-                onClick={handleAgreeEscalation}
-                className="h-8 px-3 rounded bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90 transition-colors"
-              >
-                네, 전달할게요
+          {step === "access" && (
+            <>
+              <p className="text-[13px] font-medium text-foreground">필요 계정·권한 안내</p>
+              <div className="bg-muted/30 rounded-md p-3 border border-border">
+                <p className="text-[11px] text-muted-foreground mb-1">필요 계정</p>
+                <p className="text-[13px] text-foreground">
+                  {asset.requiredLicenses.join(", ") || "별도 계정이 필요하지 않습니다."}
+                </p>
+              </div>
+              <p className="text-[12px] text-muted-foreground leading-relaxed">
+                위 계정으로 로그인돼 있는지 확인해 주세요. 계정이 없다면 담당 조직({asset.ownerDepartment})에 접근 권한을 요청하세요.
+              </p>
+              <button onClick={() => setStep("menu")} className="self-start text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+                ← 다른 문제 선택하기
               </button>
-              <button
-                onClick={handleDeclineEscalation}
-                className="h-8 px-3 rounded border border-border text-[12px] text-foreground hover:bg-muted transition-colors"
-              >
-                아니요, 괜찮아요
+            </>
+          )}
+
+          {step === "howto" && (
+            <>
+              <p className="text-[13px] font-medium text-foreground">사용 예시·가이드</p>
+              <pre className="text-[12px] text-foreground bg-muted/30 border border-border rounded-md p-3 whitespace-pre-wrap leading-relaxed font-sans">
+                {buildMockPrompt(asset)}
+              </pre>
+              <button onClick={() => setStep("menu")} className="self-start text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+                ← 다른 문제 선택하기
               </button>
-            </div>
+            </>
+          )}
+
+          {step === "checkPrompt" && (
+            <>
+              <p className="text-[13px] text-foreground">필요 계정으로 로그인돼 있나요?</p>
+              <div className="flex gap-2">
+                <button onClick={() => setStep("report")}
+                  className="h-9 px-4 rounded bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 transition-colors">
+                  예
+                </button>
+                <button onClick={() => setStep("access")}
+                  className="h-9 px-4 rounded border border-border text-[13px] text-foreground hover:bg-muted transition-colors">
+                  아니오
+                </button>
+              </div>
+            </>
+          )}
+
+          {step === "report" && (
+            <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+              <span className="inline-flex items-center gap-1 self-start px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
+                <Bot size={11} /> AI가 정리한 내용입니다
+              </span>
+              <textarea
+                value={detail}
+                onChange={(e) => setDetail(e.target.value)}
+                rows={8}
+                className="w-full px-3 py-2 rounded border border-border bg-background text-[12px] text-foreground leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                내용을 확인하고 필요하면 수정한 뒤 제출하세요. 제출하면 이 자산의 등록자에게 전달됩니다.
+              </p>
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={onClose}
+                  className="flex-1 h-9 rounded border border-border text-[13px] text-foreground hover:bg-muted transition-colors">
+                  취소
+                </button>
+                <button type="submit"
+                  className="flex-1 h-9 rounded bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 transition-colors">
+                  제출
+                </button>
+              </div>
+            </form>
           )}
         </div>
-
-        {inputDisabled ? (
-          <div className="px-6 py-4 border-t border-border">
-            <button onClick={onClose} className="w-full h-9 rounded border border-border text-[13px] text-foreground hover:bg-muted transition-colors">
-              닫기
-            </button>
-          </div>
-        ) : (
-          <form onSubmit={handleSend} className="flex items-center gap-2 px-6 py-4 border-t border-border">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="상황을 입력해 주세요."
-              className="flex-1 h-9 px-3 rounded border border-border bg-background text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-            />
-            <button
-              type="submit"
-              disabled={!input.trim()}
-              className="h-9 px-4 rounded bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              전송
-            </button>
-          </form>
-        )}
       </div>
     </ModalOverlay>
   );

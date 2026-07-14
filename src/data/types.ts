@@ -67,6 +67,22 @@ export interface Review {
   policyVersion: string;
 }
 
+// ─── 문의 티켓 (사용자 문의 입구 → 등록자 수신함) ──────────────────────────────
+// 사용자 쪽에서 보이는 상태 3종(AI 안내 완료/등록자 확인 중/반영됨)은 이 status를
+// 그대로 매핑한 것이다: OPEN="AI 안내 완료", ANSWERED="등록자 확인 중",
+// APPLIED="반영됨(appliedVersion)".
+export interface IssueTicket {
+  id: string;
+  assetId: string;
+  assetName: string;
+  assetVersion: string;
+  createdAt: string;
+  summary: string; // AI가 정리한 신고 내용
+  status: "OPEN" | "ANSWERED" | "APPLIED";
+  reply?: string;
+  appliedVersion?: string;
+}
+
 export interface AIAsset {
   id: string;
   registrantUserId?: string;

@@ -1,5 +1,5 @@
 import { createContext, useContext, useReducer, type ReactNode } from "react";
-import type { AIAsset, AssetStatus } from "../data/types";
+import type { AIAsset, AssetStatus, IssueTicket } from "../data/types";
 import { INITIAL_ASSETS } from "../data/assets";
 import {
   applyStatusUpdate,
@@ -22,6 +22,7 @@ interface ContextState {
   revisionNotes: Record<string, string[]>;
   approvalConditions: Record<string, string[]>;
   checkingInfo: Record<string, CheckingInfo>;
+  tickets: Record<string, IssueTicket[]>;
 }
 
 const INITIAL_STATE: ContextState = {
@@ -30,6 +31,7 @@ const INITIAL_STATE: ContextState = {
   revisionNotes: {},
   approvalConditions: {},
   checkingInfo: {},
+  tickets: {},
 };
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
@@ -44,7 +46,18 @@ type AssetAction =
   | { type: "SET_APPROVAL_CONDITIONS"; id: string; conditions: string[] }
   | { type: "PATCH_ASSET"; id: string; patch: Partial<Pick<AIAsset, "status" | "showOnCatalog" | "visibility" | "version">> }
   | { type: "REPORT_ERROR"; id: string; errorType: string }
+  | { type: "SUBMIT_TICKET"; assetId: string; assetName: string; assetVersion: string; summary: string }
+  | { type: "REPLY_TICKET"; assetId: string; ticketId: string; reply: string }
+  | { type: "APPLY_TICKET"; assetId: string; ticketId: string }
   | { type: "DEMO_RESET" };
+
+// 버전 반영(mock) 시 patch 자리를 1 올린다. "1.2" 같은 2단 버전도 처리한다.
+function bumpPatchVersion(version: string): string {
+  const parts = version.split(".").map(Number);
+  while (parts.length < 3) parts.push(0);
+  parts[2] = (parts[2] || 0) + 1;
+  return parts.join(".");
+}
 
 // ─── Reducer ─────────────────────────────────────────────────────────────────
 
@@ -87,6 +100,56 @@ function assetReducer(state: ContextState, action: AssetAction): ContextState {
         assets: applyStatusUpdate(state.assets, action.id, "CHECKING"),
       };
     }
+    case "SUBMIT_TICKET": {
+      const ticket: IssueTicket = {
+        id: `ticket-${action.assetId}-${Date.now()}`,
+        assetId: action.assetId,
+        assetName: action.assetName,
+        assetVersion: action.assetVersion,
+        createdAt: new Date().toISOString().split("T")[0],
+        summary: action.summary,
+        status: "OPEN",
+      };
+      return {
+        ...state,
+        tickets: {
+          ...state.tickets,
+          [action.assetId]: [ticket, ...(state.tickets[action.assetId] ?? [])],
+        },
+      };
+    }
+    case "REPLY_TICKET": {
+      const list = state.tickets[action.assetId] ?? [];
+      return {
+        ...state,
+        tickets: {
+          ...state.tickets,
+          [action.assetId]: list.map(t =>
+            t.id === action.ticketId ? { ...t, status: "ANSWERED", reply: action.reply } : t
+          ),
+        },
+      };
+    }
+    case "APPLY_TICKET": {
+      const asset = state.assets.find(a => a.id === action.assetId);
+      if (!asset) return state;
+      const nextVersion = bumpPatchVersion(asset.version);
+      const list = state.tickets[action.assetId] ?? [];
+      return {
+        ...state,
+        assets: state.assets.map(a =>
+          a.id === action.assetId
+            ? { ...a, version: nextVersion, lastUpdated: new Date().toISOString().split("T")[0] }
+            : a
+        ),
+        tickets: {
+          ...state.tickets,
+          [action.assetId]: list.map(t =>
+            t.id === action.ticketId ? { ...t, status: "APPLIED", appliedVersion: nextVersion } : t
+          ),
+        },
+      };
+    }
     case "DEMO_RESET": {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { "asset-005": _ci, ...restChecking } = state.checkingInfo;
@@ -125,6 +188,7 @@ interface AssetContextValue {
   revisionNotes: Record<string, string[]>;
   approvalConditions: Record<string, string[]>;
   checkingInfo: Record<string, CheckingInfo>;
+  tickets: Record<string, IssueTicket[]>;
   dispatch: React.Dispatch<AssetAction>;
 }
 
@@ -141,6 +205,7 @@ export function AssetProvider({ children }: { children: ReactNode }) {
       revisionNotes: state.revisionNotes,
       approvalConditions: state.approvalConditions,
       checkingInfo: state.checkingInfo,
+      tickets: state.tickets,
       dispatch,
     }}>
       {children}

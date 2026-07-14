@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { useAssets } from "../context/AssetContext";
 import { ASSET_STATUS_LABELS, ASSET_STATUS_CHIP } from "../data/types";
-import type { AIAsset, AssetStatus } from "../data/types";
+import type { AIAsset, AssetStatus, IssueTicket } from "../data/types";
 
 // ─── Demo registrant ID ───────────────────────────────────────────────────────
 
@@ -182,7 +182,7 @@ function MetricRow({ label, value, sub }: { label: string; value: string; sub?: 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function MyAssetsScreen({ onOpenDetail }: { onOpenDetail?: (id: string) => void }) {
-  const { assets, revisionNotes, approvalConditions, checkingInfo, dispatch } = useAssets();
+  const { assets, revisionNotes, approvalConditions, checkingInfo, tickets, dispatch } = useAssets();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [correctionApplied, setCorrectionApplied] = useState(false);
 
@@ -226,6 +226,9 @@ export default function MyAssetsScreen({ onOpenDetail }: { onOpenDetail?: (id: s
         asset={selectedAsset}
         approvalConditions={approvalConditions[selectedAsset.id] ?? []}
         checkingInfo={checkingInfo[selectedAsset.id]}
+        tickets={tickets[selectedAsset.id] ?? []}
+        onReplyTicket={(ticketId, reply) => dispatch({ type: "REPLY_TICKET", assetId: selectedAsset.id, ticketId, reply })}
+        onApplyTicket={(ticketId) => dispatch({ type: "APPLY_TICKET", assetId: selectedAsset.id, ticketId })}
         onViewInPlayground={onOpenDetail ? () => { onOpenDetail(selectedAsset.id); setSelectedId(null); } : undefined}
         onBack={() => setSelectedId(null)}
       />
@@ -498,11 +501,14 @@ function PrePublishDetail({
 // ─── Published detail view ────────────────────────────────────────────────────
 
 function PublishedDetail({
-  asset, approvalConditions, checkingInfo, onViewInPlayground, onBack,
+  asset, approvalConditions, checkingInfo, tickets, onReplyTicket, onApplyTicket, onViewInPlayground, onBack,
 }: {
   asset: AIAsset;
   approvalConditions: string[];
   checkingInfo?: { previousStatus: AssetStatus; errorType: string; reportedAt: string };
+  tickets: IssueTicket[];
+  onReplyTicket: (ticketId: string, reply: string) => void;
+  onApplyTicket: (ticketId: string) => void;
   onViewInPlayground?: () => void;
   onBack: () => void;
 }) {
@@ -510,6 +516,7 @@ function PublishedDetail({
   const stage = getJourneyStage(asset.status);
   const detail = getStatusDetail(asset, { revisionNotes: [], checkingInfo });
   const u = asset.usage;
+  const [ticketListOpen, setTicketListOpen] = useState(false);
 
   const usageMetrics = [
     { icon: <Users size={14} className="text-primary" />,               label: "누적 사용자",                   value: `${u.totalCount.toLocaleString()}명` },
@@ -517,7 +524,7 @@ function PublishedDetail({
     ...(u.actionCount != null ? [{ icon: <Activity size={14} className="text-indigo-500" />, label: `${asset.usageActionLabel} 횟수`, value: `${u.actionCount}회` }] : []),
     { icon: <Building2 size={14} className="text-teal-500" />,          label: "사용 부서",                     value: `${u.departmentCount}개` },
     ...(u.favoriteCount != null ? [{ icon: <Star size={14} className="text-amber-500" />, label: "즐겨찾기",      value: `${u.favoriteCount}명` }] : []),
-    ...(u.issueCount != null ? [{ icon: <MessageSquareWarning size={14} className="text-red-400" />, label: "오류 제보", value: `${u.issueCount}건` }] : []),
+    ...(u.issueCount != null ? [{ icon: <MessageSquareWarning size={14} className="text-red-400" />, label: "오류 제보", value: `${u.issueCount}건`, onClick: () => setTicketListOpen(true) }] : []),
   ];
 
   return (
@@ -548,7 +555,13 @@ function PublishedDetail({
           <SectionCard title="활용 현황">
             <div className="grid grid-cols-3 gap-3 mb-4">
               {usageMetrics.map(m => (
-                <div key={m.label} className="bg-muted/30 rounded-md p-3 flex flex-col gap-1.5">
+                <div
+                  key={m.label}
+                  onClick={m.onClick}
+                  className={`bg-muted/30 rounded-md p-3 flex flex-col gap-1.5 ${
+                    m.onClick ? "cursor-pointer hover:bg-muted/60 transition-colors" : ""
+                  }`}
+                >
                   <div className="flex items-center gap-1.5">
                     {m.icon}
                     <span className="text-[11px] text-muted-foreground">{m.label}</span>
@@ -641,6 +654,137 @@ function PublishedDetail({
               ))}
             </div>
           </div>
+        </div>
+      </div>
+
+      {ticketListOpen && (
+        <TicketListModal
+          asset={asset}
+          tickets={tickets}
+          onClose={() => setTicketListOpen(false)}
+          onReply={onReplyTicket}
+          onApplyVersion={(ticketId) => {
+            onApplyTicket(ticketId);
+            toast.info("업데이트 화면으로 이동", {
+              description: "새 버전이 반영되었습니다. (데모 — 실제 등록 화면 이동 없음)",
+              duration: 3000,
+            });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── 오류 제보 티켓 목록 (등록자 수신함) ────────────────────────────────────────
+
+const TICKET_STATUS_BADGE: Record<IssueTicket["status"], { label: string; cls: string }> = {
+  OPEN:     { label: "미답변",   cls: "bg-orange-50 text-orange-600" },
+  ANSWERED: { label: "답변 완료", cls: "bg-green-50 text-green-700" },
+  APPLIED:  { label: "반영 완료", cls: "bg-primary/10 text-primary" },
+};
+
+function TicketListModal({
+  asset, tickets, onClose, onReply, onApplyVersion,
+}: {
+  asset: AIAsset;
+  tickets: IssueTicket[];
+  onClose: () => void;
+  onReply: (ticketId: string, reply: string) => void;
+  onApplyVersion: (ticketId: string) => void;
+}) {
+  const [openReplyId, setOpenReplyId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
+
+  function handleSendReply(ticketId: string) {
+    if (!replyText.trim()) return;
+    onReply(ticketId, replyText.trim());
+    setOpenReplyId(null);
+    setReplyText("");
+    toast.success("답변이 발송되었습니다.", { description: "(데모 — 실제 발송 없음)", duration: 2500 });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative z-10 bg-card rounded-lg shadow-xl w-[520px] max-h-[80vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div>
+            <h3 className="text-[15px] font-semibold text-foreground">오류 제보 티켓</h3>
+            <p className="text-[11px] text-muted-foreground mt-0.5">{asset.name}</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-[20px] leading-none">×</button>
+        </div>
+
+        <div className="px-6 py-4 flex flex-col gap-3">
+          {tickets.length === 0 ? (
+            <p className="text-[12px] text-muted-foreground text-center py-8">접수된 티켓이 없습니다.</p>
+          ) : (
+            tickets.map(t => (
+              <div key={t.id} className="border border-border rounded-md p-3 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${TICKET_STATUS_BADGE[t.status].cls}`}>
+                    {TICKET_STATUS_BADGE[t.status].label}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">{t.createdAt}</span>
+                </div>
+
+                <pre className="text-[11px] text-foreground whitespace-pre-wrap leading-relaxed font-sans bg-muted/30 rounded p-2.5">
+                  {t.summary}
+                </pre>
+
+                {t.reply && (
+                  <div className="text-[11px] text-foreground bg-primary/5 border border-primary/20 rounded p-2.5">
+                    <p className="text-[10px] text-primary font-medium mb-1">보낸 답변</p>
+                    {t.reply}
+                  </div>
+                )}
+
+                {openReplyId === t.id ? (
+                  <div className="flex flex-col gap-2">
+                    <textarea
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      rows={3}
+                      placeholder="사용자에게 보낼 답변을 입력하세요."
+                      className="w-full px-2.5 py-2 rounded border border-border bg-background text-[12px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+                    />
+                    <div className="flex gap-2">
+                      <button onClick={() => { setOpenReplyId(null); setReplyText(""); }}
+                        className="flex-1 h-8 rounded border border-border text-[12px] text-foreground hover:bg-muted transition-colors">
+                        취소
+                      </button>
+                      <button onClick={() => handleSendReply(t.id)}
+                        className="flex-1 h-8 rounded bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90 transition-colors">
+                        보내기
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setOpenReplyId(t.id); setReplyText(t.reply ?? ""); }}
+                      className="flex-1 h-8 rounded border border-border text-[12px] text-foreground hover:bg-muted transition-colors"
+                    >
+                      답변 보내기
+                    </button>
+                    {t.status === "APPLIED" ? (
+                      <span className="flex-1 h-8 flex items-center justify-center rounded bg-primary/5 text-[12px] text-primary font-medium">
+                        반영됨 · v{t.appliedVersion}
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => onApplyVersion(t.id)}
+                        className="flex-1 h-8 rounded border border-border text-[12px] text-foreground hover:bg-muted transition-colors"
+                      >
+                        버전 반영
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
