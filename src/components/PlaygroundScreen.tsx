@@ -14,10 +14,12 @@ import {
   PlusCircle,
   ChevronRight,
   Sparkles,
+  Building2,
 } from "lucide-react";
 import { useAssets } from "../context/AssetContext";
 import { getCatalogAssets, getFeaturedAssets } from "../data/store";
 import type { AIAsset, AssetType } from "../data/types";
+import TrustBadges from "./TrustBadges";
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 
@@ -69,7 +71,10 @@ interface PlaygroundScreenProps {
   typeFilter: AssetType | null;
   onSearchChange: (q: string) => void;
   onTypeFilterChange: (t: AssetType | null) => void;
+  officialOnly: boolean;
+  onOfficialToggle: (v: boolean) => void;
   onNavigate?: (menu: string) => void;
+  onOpenBadgeGuide?: () => void;
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
@@ -80,17 +85,21 @@ export default function PlaygroundScreen({
   typeFilter,
   onSearchChange,
   onTypeFilterChange,
+  officialOnly,
+  onOfficialToggle,
   onNavigate,
+  onOpenBadgeGuide,
 }: PlaygroundScreenProps) {
   const { assets, recentIds, dispatch } = useAssets();
 
   const catalogAssets  = useMemo(() => getCatalogAssets(assets), [assets]);
   const featuredAssets = useMemo(() => getFeaturedAssets(assets), [assets]);
 
-  const isFiltering = searchQuery.trim() !== "" || typeFilter !== null;
+  const isFiltering = searchQuery.trim() !== "" || typeFilter !== null || officialOnly;
 
   const filteredAssets = useMemo(() => {
     let result = catalogAssets;
+    if (officialOnly) result = result.filter((a) => a.trustTier === "OFFICIAL");
     if (typeFilter) result = result.filter((a) => a.assetType === typeFilter);
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
@@ -104,7 +113,7 @@ export default function PlaygroundScreen({
       );
     }
     return result;
-  }, [catalogAssets, typeFilter, searchQuery]);
+  }, [catalogAssets, typeFilter, searchQuery, officialOnly]);
 
   const recentAssets = useMemo(
     () => recentIds.map((id) => assets.find((a) => a.id === id)).filter(Boolean) as AIAsset[],
@@ -165,9 +174,9 @@ export default function PlaygroundScreen({
         {TYPE_FILTERS.map((f) => (
           <button
             key={f.label}
-            onClick={() => onTypeFilterChange(f.value)}
+            onClick={() => { onTypeFilterChange(f.value); onOfficialToggle(false); }}
             className={`h-7 px-3 rounded-full text-[12px] font-medium border transition-colors whitespace-nowrap ${
-              typeFilter === f.value
+              typeFilter === f.value && !officialOnly
                 ? "bg-primary text-primary-foreground border-primary"
                 : "bg-card text-foreground border-border hover:bg-muted"
             }`}
@@ -175,9 +184,23 @@ export default function PlaygroundScreen({
             {f.label}
           </button>
         ))}
+
+        {/* 공식 자산 필터 (유형 필터와 상호배타) */}
+        <span className="w-px h-4 bg-border mx-0.5" aria-hidden />
+        <button
+          onClick={() => { onOfficialToggle(!officialOnly); onTypeFilterChange(null); }}
+          className={`flex items-center gap-1 h-7 px-3 rounded-full text-[12px] font-medium border transition-colors whitespace-nowrap ${
+            officialOnly
+              ? "bg-primary text-primary-foreground border-primary"
+              : "bg-card text-foreground border-border hover:bg-muted"
+          }`}
+        >
+          <Building2 size={12} /> 공식
+        </button>
+
         {isFiltering && (
           <button
-            onClick={() => { onTypeFilterChange(null); onSearchChange(""); }}
+            onClick={() => { onTypeFilterChange(null); onSearchChange(""); onOfficialToggle(false); }}
             className="h-7 px-3 rounded-full text-[12px] font-medium border border-destructive/30 text-destructive hover:bg-destructive/5 transition-colors"
           >
             필터 초기화
@@ -196,7 +219,7 @@ export default function PlaygroundScreen({
             </span>
           </div>
           {filteredAssets.length > 0 ? (
-            <AssetGrid assets={filteredAssets} onAction={handleAction} onFavorite={handleFavorite} onOpenDetail={onOpenDetail} />
+            <AssetGrid assets={filteredAssets} onAction={handleAction} onFavorite={handleFavorite} onOpenDetail={onOpenDetail} onOpenBadgeGuide={onOpenBadgeGuide} />
           ) : (
             <EmptySearchState query={searchQuery} />
           )}
@@ -207,7 +230,7 @@ export default function PlaygroundScreen({
           <section className="mb-8">
             <SectionHeader icon={<Clock size={14} />} title="최근 사용" />
             {recentAssets.length > 0 ? (
-              <AssetGrid assets={recentAssets} onAction={handleAction} onFavorite={handleFavorite} onOpenDetail={onOpenDetail} />
+              <AssetGrid assets={recentAssets} onAction={handleAction} onFavorite={handleFavorite} onOpenDetail={onOpenDetail} onOpenBadgeGuide={onOpenBadgeGuide} />
             ) : (
               <div className="bg-card border border-border rounded-md px-5 py-4 flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
@@ -224,7 +247,7 @@ export default function PlaygroundScreen({
           {/* ── 추천 자산 ── */}
           <section className="mb-8">
             <SectionHeader icon={<Sparkles size={14} />} title="추천 자산" description="업무별로 바로 쓸 수 있는 AI 자산을 모았습니다." />
-            <AssetGrid assets={featuredAssets} onAction={handleAction} onFavorite={handleFavorite} onOpenDetail={onOpenDetail} featured />
+            <AssetGrid assets={featuredAssets} onAction={handleAction} onFavorite={handleFavorite} onOpenDetail={onOpenDetail} onOpenBadgeGuide={onOpenBadgeGuide} featured />
           </section>
 
           {/* ── 전체 자산 ── */}
@@ -234,7 +257,7 @@ export default function PlaygroundScreen({
               title="전체 자산"
               description={`게시된 AI 자산 ${catalogAssets.length}개`}
             />
-            <AssetGrid assets={catalogAssets} onAction={handleAction} onFavorite={handleFavorite} onOpenDetail={onOpenDetail} />
+            <AssetGrid assets={catalogAssets} onAction={handleAction} onFavorite={handleFavorite} onOpenDetail={onOpenDetail} onOpenBadgeGuide={onOpenBadgeGuide} />
           </section>
         </>
       )}
@@ -261,12 +284,14 @@ function AssetGrid({
   onAction,
   onFavorite,
   onOpenDetail,
+  onOpenBadgeGuide,
   featured,
 }: {
   assets: AIAsset[];
   onAction: (a: AIAsset) => void;
   onFavorite: (a: AIAsset) => void;
   onOpenDetail: (id: string) => void;
+  onOpenBadgeGuide?: () => void;
   featured?: boolean;
 }) {
   return (
@@ -278,6 +303,7 @@ function AssetGrid({
           onAction={onAction}
           onFavorite={onFavorite}
           onOpenDetail={onOpenDetail}
+          onOpenBadgeGuide={onOpenBadgeGuide}
           featured={featured}
         />
       ))}
@@ -292,12 +318,14 @@ function AssetCard({
   onAction,
   onFavorite,
   onOpenDetail,
+  onOpenBadgeGuide,
   featured,
 }: {
   asset: AIAsset;
   onAction: (a: AIAsset) => void;
   onFavorite: (a: AIAsset) => void;
   onOpenDetail: (id: string) => void;
+  onOpenBadgeGuide?: () => void;
   featured?: boolean;
 }) {
   const badge = TYPE_BADGE[asset.assetType];
@@ -344,6 +372,9 @@ function AssetCard({
           <span className="text-[11px] text-muted-foreground truncate">
             {asset.ownerName} · {asset.ownerDepartment}
           </span>
+        </div>
+        <div className="mb-2.5">
+          <TrustBadges asset={asset} onBadgeClick={onOpenBadgeGuide} />
         </div>
         {visibleBadges.length > 0 && (
           <div className="flex flex-wrap gap-1">

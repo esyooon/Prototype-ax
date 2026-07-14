@@ -11,6 +11,7 @@ import { useAssets } from "../context/AssetContext";
 import { getAssetById } from "../data/store";
 import type { AIAsset, AssetType, CostMeasurementType } from "../data/types";
 import { ASSET_TYPE_LABELS } from "../data/types";
+import TrustBadges from "./TrustBadges";
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 
@@ -105,9 +106,11 @@ function buildMockPrompt(asset: AIAsset): string {
 export default function AssetDetailScreen({
   assetId,
   onBack,
+  onOpenBadgeGuide,
 }: {
   assetId: string;
   onBack: () => void;
+  onOpenBadgeGuide?: () => void;
 }) {
   const { assets, dispatch } = useAssets();
   const asset = getAssetById(assets, assetId);
@@ -189,9 +192,12 @@ export default function AssetDetailScreen({
                 {asset.version}
               </span>
             </div>
-            <h1 className="text-[24px] font-semibold text-foreground tracking-tight mb-1.5">
-              {asset.name}
-            </h1>
+            <div className="flex items-center gap-2.5 mb-1.5 flex-wrap">
+              <h1 className="text-[24px] font-semibold text-foreground tracking-tight">
+                {asset.name}
+              </h1>
+              <TrustBadges asset={asset} size="md" onBadgeClick={onOpenBadgeGuide} />
+            </div>
             <p className="text-[14px] text-muted-foreground leading-relaxed max-w-2xl">
               {asset.description}
             </p>

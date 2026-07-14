@@ -153,6 +153,10 @@ function AppShell() {
   // Playground filter state lifted here so it survives detail → back navigation
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter,  setTypeFilter]  = useState<AssetType | null>(null);
+  const [officialOnly, setOfficialOnly] = useState(false);
+
+  // 배지 클릭 → Playground 가이드로 이동하면서 "배지 안내" 섹션으로 스크롤
+  const [guideScrollTarget, setGuideScrollTarget] = useState<string | null>(null);
 
   const visibleSections = MENU_SECTIONS.filter((s) =>
     ROLE_VISIBLE_SECTIONS[role].includes(s.id)
@@ -174,11 +178,18 @@ function AppShell() {
   function handleMenuChange(id: string) {
     setActiveMenu(id);
     setDetailAssetId(null);  // reset detail when switching menus
+    setGuideScrollTarget(null);  // 사이드바로 가이드를 열 때는 강제 스크롤하지 않음
   }
 
   function handleOpenDetailFromMyAssets(assetId: string) {
     setActiveMenu("ai-playground");
     setDetailAssetId(assetId);
+  }
+
+  function handleOpenBadgeGuide() {
+    setDetailAssetId(null);
+    setActiveMenu("playground-guide");
+    setGuideScrollTarget("badges");
   }
 
   function toggleSection(sectionId: string) {
@@ -361,6 +372,7 @@ function AppShell() {
             <AssetDetailScreen
               assetId={detailAssetId!}
               onBack={() => setDetailAssetId(null)}
+              onOpenBadgeGuide={handleOpenBadgeGuide}
             />
           ) : activeMenu === "ai-playground" ? (
             <PlaygroundScreen
@@ -369,12 +381,18 @@ function AppShell() {
               typeFilter={typeFilter}
               onSearchChange={setSearchQuery}
               onTypeFilterChange={setTypeFilter}
+              officialOnly={officialOnly}
+              onOfficialToggle={setOfficialOnly}
               onNavigate={handleMenuChange}
+              onOpenBadgeGuide={handleOpenBadgeGuide}
             />
           ) : activeMenu === "my-tools" ? (
             <MyToolsScreen onOpenDetail={setDetailAssetId} />
           ) : activeMenu === "playground-guide" ? (
-            <PlaygroundGuideScreen />
+            <PlaygroundGuideScreen
+              scrollTarget={guideScrollTarget}
+              onScrolled={() => setGuideScrollTarget(null)}
+            />
           ) : activeMenu === "asset-register" ? (
             <AssetRegisterScreen onNavigate={handleMenuChange} />
           ) : activeMenu === "my-assets" ? (

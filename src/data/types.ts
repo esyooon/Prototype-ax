@@ -19,6 +19,11 @@ export type ReviewPath = "AUTO_REGISTER" | "OPERATION_REVIEW" | "DEEP_REVIEW" | 
 
 export type CostMeasurementType = "LICENSE" | "ACTUAL" | "ESTIMATED" | "PROXY" | "NONE";
 
+// ─── 신뢰 배지 등급 ──────────────────────────────────────────────────────────
+// "검증"과 "공식"은 한 자산에 동시에 붙지 않는다. 단일 필드로 두어 배타성을
+// 데이터 구조에서부터 보장한다("심의"는 게시 상태에서 파생되는 별개 배지).
+export type TrustTier = "VERIFIED" | "OFFICIAL";
+
 // ─── 자가진단 ────────────────────────────────────────────────────────────────
 
 export type DiagQuestionAnswer = "yes" | "no" | "unknown";
@@ -103,6 +108,7 @@ export interface AIAsset {
   usage: AssetUsage;
   review: Review;
   selfDiagnosis?: SelfDiagnosisAnswers;
+  trustTier?: TrustTier;
 
   createdAt: string;
   lastUpdated: string;

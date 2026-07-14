@@ -1,6 +1,13 @@
-import { FileText, Bot, Zap, AppWindow, Plug, MoreHorizontal, ChevronRight, Shield, BookOpen, Lightbulb, AlertCircle, CheckCircle2 } from "lucide-react";
+import { useEffect, useRef } from "react";
+import { FileText, Bot, Zap, AppWindow, Plug, MoreHorizontal, ChevronRight, Shield, BookOpen, Lightbulb, AlertCircle, CheckCircle2, UserCheck, Building2, BadgeCheck } from "lucide-react";
+import { TRUST_BADGE_META, TRUST_BADGE_ORDER, type TrustBadgeKind } from "../data/badges";
 
-type Section = { title: string; content: React.ReactNode };
+// 배지 안내 섹션용 아이콘 (TrustBadges 컴포넌트와 동일한 아이콘 사용)
+const BADGE_GUIDE_ICONS: Record<TrustBadgeKind, React.ReactNode> = {
+  REVIEWED: <CheckCircle2 size={13} />,
+  VERIFIED: <UserCheck size={13} />,
+  OFFICIAL: <Building2 size={13} />,
+};
 
 const ASSET_TYPES = [
   {
@@ -82,7 +89,23 @@ function SectionCard({ title, children }: { title: React.ReactNode; children: Re
   );
 }
 
-export default function PlaygroundGuideScreen() {
+export default function PlaygroundGuideScreen({
+  scrollTarget,
+  onScrolled,
+}: {
+  scrollTarget?: string | null;
+  onScrolled?: () => void;
+} = {}) {
+  const badgeSectionRef = useRef<HTMLDivElement>(null);
+
+  // 배지 클릭으로 진입한 경우("badges") 배지 안내 섹션으로 스크롤
+  useEffect(() => {
+    if (scrollTarget === "badges" && badgeSectionRef.current) {
+      badgeSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      onScrolled?.();
+    }
+  }, [scrollTarget, onScrolled]);
+
   return (
     <div className="px-10 py-8">
       <div className="mb-6">
@@ -148,6 +171,37 @@ export default function PlaygroundGuideScreen() {
             ))}
           </div>
         </SectionCard>
+
+        {/* 배지 안내 */}
+        <div ref={badgeSectionRef} className="scroll-mt-6">
+          <SectionCard title={<span className="flex items-center gap-2"><BadgeCheck size={15} /> 배지 안내</span>}>
+            <p className="text-[13px] text-muted-foreground leading-relaxed mb-4">
+              자산 카드와 상세 화면의 이름 옆 배지는 그 자산이 어떤 확인을 거쳤는지 알려줍니다.
+            </p>
+            <div className="flex flex-col gap-3">
+              {TRUST_BADGE_ORDER.map(kind => {
+                const meta = TRUST_BADGE_META[kind];
+                return (
+                  <div key={kind} className="flex items-start gap-4">
+                    <div className="flex-shrink-0 pt-0.5">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[11px] font-medium ${meta.cls}`}>
+                        {BADGE_GUIDE_ICONS[kind]}
+                        {meta.label}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-medium text-foreground">{meta.fullName}</p>
+                      <p className="text-[12px] text-muted-foreground mt-0.5">{meta.meaning}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-4 pt-3 border-t border-border">
+              ‘활용 검증’과 ‘공식 예시’는 한 자산에 함께 붙지 않습니다. ‘심의 통과’는 게시된 모든 자산에 표시됩니다.
+            </p>
+          </SectionCard>
+        </div>
 
         {/* 승인 후 사용 방식 */}
         <SectionCard title={<span className="flex items-center gap-2"><CheckCircle2 size={15} /> 승인 후 이렇게 사용해요</span>}>
