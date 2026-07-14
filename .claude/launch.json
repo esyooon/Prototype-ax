@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev",
+      "runtimeExecutable": "cmd.exe",
+      "runtimeArgs": ["/c", "C:\\Users\\leese\\Desktop\\인턴 과제 파일 정리\\3주차\\Prototype-ax-main\\.claude\\run-dev.cmd"],
+      "port": 5173
+    }
+  ]
+}
