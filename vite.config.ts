@@ -17,6 +17,9 @@ function figmaAssetResolver() {
 }
 
 export default defineConfig({
+  // GitHub Pages serves this repo at /Prototype-ax/, not the domain root —
+  // without this, all asset URLs resolve to the root and the deployed page is blank.
+  base: '/Prototype-ax/',
   plugins: [
     figmaAssetResolver(),
     // The React and Tailwind plugins are both required for Make, even if
