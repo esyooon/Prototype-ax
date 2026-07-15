@@ -1,6 +1,6 @@
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
-  BarChart, Bar, Cell,
+  BarChart, Bar, Cell, LabelList,
 } from "recharts";
 
 // ─── Mock 데이터 (실제 API 연동 없음) ─────────────────────────────────────────
@@ -99,40 +99,42 @@ let burnoutLabel = "";
 
 function TrendChart() {
   return (
-    <div className="h-[280px]">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={trendData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-          <XAxis
-            dataKey="label"
-            tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-            axisLine={{ stroke: "var(--border)" }}
-            tickLine={false}
-            interval={Math.max(0, Math.floor(trendData.length / 8))}
-          />
-          <YAxis
-            tickFormatter={(v) => formatWonShort(v)}
-            tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-            axisLine={false}
-            tickLine={false}
-            width={56}
-          />
-          <Tooltip
-            formatter={(value: number) => formatWon(value)}
-            contentStyle={{ fontSize: 12, borderRadius: 6, borderColor: "var(--border)" }}
-          />
-          <ReferenceLine
-            y={TOTAL_BUDGET}
-            stroke="#9CA3AF"
-            strokeDasharray="4 4"
-            label={{ value: `총 배정 ${formatWonShort(TOTAL_BUDGET)}`, position: "insideTopRight", fontSize: 11, fill: "#6B7280" }}
-          />
-          <Line type="monotone" dataKey="actual" stroke="#1764E8" strokeWidth={2.5} dot={{ r: 3 }} connectNulls={false} name="실적" />
-          <Line type="monotone" dataKey="forecast" stroke="#1764E8" strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls name="예측" />
-        </LineChart>
-      </ResponsiveContainer>
+    <div>
+      <div className="h-[280px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={trendData} margin={{ top: 10, right: 16, left: 0, bottom: 12 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+            <XAxis
+              dataKey="label"
+              tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+              axisLine={{ stroke: "var(--border)" }}
+              tickLine={false}
+              interval={Math.max(0, Math.floor(trendData.length / 8))}
+            />
+            <YAxis
+              tickFormatter={(v) => formatWonShort(v)}
+              tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+              axisLine={false}
+              tickLine={false}
+              width={56}
+            />
+            <Tooltip
+              formatter={(value: number) => formatWon(value)}
+              contentStyle={{ fontSize: 12, borderRadius: 6, borderColor: "var(--border)" }}
+            />
+            <ReferenceLine
+              y={TOTAL_BUDGET}
+              stroke="#9CA3AF"
+              strokeDasharray="4 4"
+              label={{ value: `총 배정 ${formatWonShort(TOTAL_BUDGET)}`, position: "insideTopRight", fontSize: 11, fill: "#6B7280" }}
+            />
+            <Line type="monotone" dataKey="actual" stroke="#1764E8" strokeWidth={2.5} dot={{ r: 3 }} connectNulls={false} name="실적" />
+            <Line type="monotone" dataKey="forecast" stroke="#1764E8" strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls name="예측" />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
       {burnoutLabel && (
-        <p className="text-[11px] text-orange-600 font-medium mt-2 text-center">
+        <p className="text-[11px] text-orange-600 font-medium mt-4 text-center">
           이 속도면 예산 소진 예상: {burnoutLabel}
         </p>
       )}
@@ -195,6 +197,102 @@ function BreakdownChart() {
   );
 }
 
+// ─── 블록 4: 라이선스 활용 현황 ───────────────────────────────────────────────
+// 비용(얼마 썼나)과 다른 축 — "산 라이선스를 실제로 쓰나"(활용도)를 보여준다.
+
+interface LicenseUsage { name: string; purchased: number; allocated: number; used: number; unitCost: number }
+
+const LICENSE_USAGE: LicenseUsage[] = [
+  { name: "Gemini Enterprise",  purchased: 600, allocated: 540, used: 410, unitCost: 38_000 },
+  { name: "GitHub Copilot",     purchased: 120, allocated: 115, used: 88,  unitCost: 25_000 },
+  { name: "Claude",             purchased: 80,  allocated: 72,  used: 51,  unitCost: 45_000 },
+  { name: "SharePoint Plan 1",  purchased: 600, allocated: 600, used: 470, unitCost: 7_000 },
+];
+
+const licenseChartData = LICENSE_USAGE.map((l) => {
+  const utilizationPct = Math.round((l.used / l.purchased) * 100);
+  return {
+    ...l,
+    unused: l.purchased - l.used,
+    utilizationPct,
+    utilizationLabel: `${utilizationPct}%`,
+    monthlyWaste: (l.purchased - l.used) * l.unitCost,
+  };
+});
+
+const TOTAL_UNUSED_SEATS = licenseChartData.reduce((s, l) => s + l.unused, 0); // 381
+const TOTAL_MONTHLY_WASTE = licenseChartData.reduce((s, l) => s + l.monthlyWaste, 0);
+
+const LEGEND_ITEMS = [
+  { key: "purchased", label: "구매 좌석", color: "#D1D5DB" },
+  { key: "allocated",  label: "할당 좌석", color: "#93C5FD" },
+  { key: "used",       label: "실사용 좌석", color: "#1764E8" },
+];
+
+function UtilizationChart() {
+  return (
+    <div>
+      <div className="flex items-center gap-4 mb-3">
+        {LEGEND_ITEMS.map((l) => (
+          <div key={l.key} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: l.color }} />
+            {l.label}
+          </div>
+        ))}
+      </div>
+      <div className="h-[260px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={licenseChartData} margin={{ top: 20, right: 16, left: 0, bottom: 4 }} barGap={4}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+            <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={{ stroke: "var(--border)" }} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} width={36} />
+            <Tooltip
+              formatter={(value: number, key: string) => [`${value}석`, key === "purchased" ? "구매" : key === "allocated" ? "할당" : "실사용"]}
+              contentStyle={{ fontSize: 12, borderRadius: 6, borderColor: "var(--border)" }}
+            />
+            <Bar dataKey="purchased" fill="#D1D5DB" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="allocated" fill="#93C5FD" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="used" fill="#1764E8" radius={[3, 3, 0, 0]}>
+              <LabelList dataKey="utilizationLabel" position="top" style={{ fontSize: 11, fill: "#1764E8", fontWeight: 600 }} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function WasteSummary() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="rounded-md border border-red-200 bg-red-50 px-5 py-4">
+        <p className="text-[11px] text-red-600/80">미사용 라이선스</p>
+        <p className="text-[20px] font-bold text-red-600 leading-snug mt-1">
+          총 {TOTAL_UNUSED_SEATS}석 = 월 {formatWon(TOTAL_MONTHLY_WASTE)} 낭비
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {licenseChartData.map((l) => (
+          <div key={l.name} className="flex items-center justify-between text-[12px]">
+            <span className="text-foreground truncate">{l.name}</span>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span className="text-muted-foreground">{l.unused}석</span>
+              <span className="text-red-600 font-medium" style={{ fontFamily: "'DM Mono', monospace" }}>
+                {formatWon(l.monthlyWaste)}/월
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-[11px] text-muted-foreground border-t border-border pt-3">
+        실사용 판정 기준: GWS 활동 로그 (플랫폼 클릭 로그와 별도)
+      </p>
+    </div>
+  );
+}
+
 // ─── SectionCard ──────────────────────────────────────────────────────────────
 
 function SectionCard({ title, children }: { title?: string; children: React.ReactNode }) {
@@ -235,6 +333,20 @@ export default function CostLicenseScreen() {
             <BreakdownChart />
           </SectionCard>
         </div>
+      </div>
+
+      {/* 블록 4: 라이선스 활용 현황 (풀폭) */}
+      <div className="mt-4">
+        <SectionCard title="라이선스 활용 현황">
+          <div className="grid grid-cols-3 gap-6">
+            <div className="col-span-2">
+              <UtilizationChart />
+            </div>
+            <div className="col-span-1">
+              <WasteSummary />
+            </div>
+          </div>
+        </SectionCard>
       </div>
     </div>
   );
