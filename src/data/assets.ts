@@ -339,6 +339,17 @@ export const INITIAL_ASSETS: AIAsset[] = [
       monthlyExecutionLimit: 20,
       maxReportsPerExecution: 10,
     },
+    // AssetRegisterScreen의 DEMO_FORM.typeFields와 동일한 값 — 이 자산을 등록할
+    // 때 실제로 입력됐을 법한 B1 스키마 필드값을 그대로 재현한 것이다.
+    registrationFields: {
+      touchedServices: ["GOOGLE_WORKSPACE"],
+      doesSend: false,
+      doesModify: true,
+      doesDelete: false,
+      executionMode: "SCHEDULED",
+      filePayload: "weekly_report.gs",
+      installGuide: "Google Apps Script 프로젝트에 코드를 붙여넣고 매주 금요일 오후 5시 트리거를 설정하세요.",
+    },
   },
 
   // ─── asset-006 ─────────────────────────────────────────────────────────────
@@ -673,6 +684,14 @@ export const INITIAL_ASSETS: AIAsset[] = [
         "계약 갱신 이슈 조회",
         "미팅 이력 조회",
       ],
+    },
+    // 이 자산을 등록할 때 실제로 입력됐을 법한 B1 스키마(MCP) 필드값 재현.
+    registrationFields: {
+      connectedSystem: "CRM, Google Calendar, Gmail",
+      connectionInfo: "https://mcp.internal.daou.co.kr/sales-crm",
+      permissionScopeReason: "담당 고객의 CRM·메일·캘린더 데이터 조회 — 영업 담당자별 회의 브리핑 생성을 위해 필요",
+      authMethod: "OAUTH",
+      prerequisitePermissions: "영업전략팀 CRM 조회 권한, Google Workspace 계정",
     },
   },
 

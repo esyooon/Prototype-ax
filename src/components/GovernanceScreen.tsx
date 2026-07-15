@@ -5,7 +5,9 @@ import { useAssets } from "../context/AssetContext";
 import { getReviewPendingAssets } from "../data/store";
 import { ASSET_STATUS_LABELS, ASSET_STATUS_CHIP, REVIEW_PATH_LABELS } from "../data/types";
 import type { AIAsset, AssetStatus, SelfDiagnosisAnswers } from "../data/types";
-import { calculateReviewPath, inferDiagnosisFromAsset, DIAG_QUESTION_TEXT, DIAG_QUESTION_ORDER } from "../data/reviewPolicy";
+import { calculateReviewPath, inferDiagnosisFromAsset, describeFieldRisk, DIAG_QUESTION_TEXT, DIAG_QUESTION_ORDER } from "../data/reviewPolicy";
+import { ASSET_TYPE_FIELD_SCHEMAS, isFieldRiskTriggered } from "../data/assetTypeSchemas";
+import type { AssetTypeField } from "../data/assetTypeSchemas";
 
 // ─── Filter ───────────────────────────────────────────────────────────────────
 
@@ -54,6 +56,80 @@ function buildDiagnosisRows(asset: AIAsset): DiagRow[] {
 }
 
 const ANSWER_LABEL: Record<"yes" | "no" | "unknown", string> = { yes: "예", no: "아니오", unknown: "잘 모르겠음" };
+
+// ─── 자산 원문 (B1 스키마 재사용) ────────────────────────────────────────────
+// 등록 화면(AssetRegisterScreen)이 쓰는 것과 같은 ASSET_TYPE_FIELD_SCHEMAS를
+// 그대로 읽어 필드 라벨·순서·위험 신호를 재사용한다 — 심의용 필드 정의를 새로
+// 만들지 않는다. 값은 asset.registrationFields(등록 시점 원문, B1 필드 key
+// 기준)에서 가져오며, 없으면 "원문 없음"으로 안내한다.
+
+const SCAN_KEYWORDS = ["보내", "삭제", "수정"];
+
+function highlightScan(text: string): React.ReactNode {
+  const pattern = new RegExp(`(${SCAN_KEYWORDS.join("|")})`, "g");
+  const parts = text.split(pattern);
+  return parts.map((part, i) =>
+    SCAN_KEYWORDS.includes(part)
+      ? <mark key={i} className="bg-orange-200/70 text-orange-900 rounded px-0.5">{part}</mark>
+      : <span key={i}>{part}</span>
+  );
+}
+
+function formatFieldValue(field: AssetTypeField, value: unknown): React.ReactNode {
+  if (value == null || value === "" || (Array.isArray(value) && value.length === 0)) return "—";
+  if (field.inputType === "checkbox") return value === true ? "예" : "아니오";
+  if (Array.isArray(value)) {
+    return value.map((v) => field.options?.find((o) => o.value === v)?.label ?? String(v)).join(", ");
+  }
+  if (field.options) {
+    return field.options.find((o) => o.value === value)?.label ?? String(value);
+  }
+  if (field.inputType === "textarea") return highlightScan(String(value));
+  return String(value);
+}
+
+function AssetOriginalContent({ asset }: { asset: AIAsset }) {
+  const schema = ASSET_TYPE_FIELD_SCHEMAS[asset.assetType];
+  const regFields = asset.registrationFields ?? {};
+  const hasData = Object.keys(regFields).length > 0;
+  const riskyFields = schema.fields.filter(
+    (f) => f.risk.type !== "none" && isFieldRiskTriggered(f, regFields[f.key])
+  );
+
+  return (
+    <SectionCard title="자산 원문">
+      {!hasData ? (
+        <p className="text-[12px] text-muted-foreground">이 자산은 등록 시점의 원문 데이터가 없습니다.</p>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {riskyFields.length > 0 && (
+            <div className="flex flex-col gap-2 p-3 bg-red-50 border border-red-200 rounded-md">
+              <div className="flex items-center gap-1.5 text-[12px] font-semibold text-red-700">
+                <AlertTriangle size={13} /> 위험 항목
+              </div>
+              <ul className="flex flex-col gap-1">
+                {riskyFields.map((f) => (
+                  <li key={f.key} className="text-[12px] text-red-700">
+                    {describeFieldRisk(f, regFields[f.key])}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="flex flex-col gap-2.5">
+            <p className="text-[11px] font-semibold text-muted-foreground">전체 항목</p>
+            {schema.fields.map((f) => (
+              <div key={f.key} className="flex gap-3 text-[12px]">
+                <span className="text-muted-foreground w-40 flex-shrink-0">{f.label}</span>
+                <span className="text-foreground flex-1 whitespace-pre-wrap">{formatFieldValue(f, regFields[f.key])}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </SectionCard>
+  );
+}
 
 // ─── Shared components ────────────────────────────────────────────────────────
 
@@ -433,6 +509,12 @@ function DetailView({
               </div>
             </SectionCard>
           )}
+
+          {/* 자산 원문 — B1 스키마(assetTypeSchemas)를 그대로 재사용해 유형별
+              등록 원문을 보여준다. 위 "심의 기준본 요약"은 AUTOMATION 한정으로
+              연결 서비스·처리 단계 등 스키마 밖 정보(권한·예약 실행)를 보여주는
+              별개 블록이라 그대로 두고, 이 블록을 추가로 둔다. */}
+          <AssetOriginalContent asset={asset} />
 
           {/* 자가진단 */}
           <SectionCard title="자가진단">

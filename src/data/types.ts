@@ -145,6 +145,12 @@ export interface AIAsset {
   isFavorite: boolean;
 
   typeSpecific: Record<string, unknown>;
+
+  // 등록 시점에 B1 스키마(assetTypeSchemas.ts) 필드 key로 채워진 원문 값. 위의
+  // typeSpecific(과거부터 있던, 화면마다 제각각인 표시용 필드 모음)과는 별개다 —
+  // 이건 심의 화면의 "자산 원문" 블록이 스키마를 그대로 재사용해 렌더링할 수
+  // 있도록 field.key와 값이 1:1로 맞는 자산에만 채워 넣는다.
+  registrationFields?: Record<string, unknown>;
 }
 
 // ─── UI 레이블 ───────────────────────────────────────────────────────────────

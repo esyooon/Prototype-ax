@@ -101,6 +101,17 @@ function describeTriggeredValue(field: AssetTypeField, value: unknown): string {
   return labels.join(", ");
 }
 
+// 필드 하나의 위험 사유 문구를 만든다("필드명: 값 → 정밀 심의" / "필드명 → 정밀
+// 심의"). 등록 화면(runPreCheck)과 심의 화면(자산 원문 블록)이 같은 문구를 쓰도록
+// 공용화한다 — 같은 스키마, 다른 화면이라도 사유 표현은 갈라지면 안 된다.
+export function describeFieldRisk(field: AssetTypeField, value: unknown): string {
+  if (field.risk.type === "none") return field.label;
+  const tierLabel = field.risk.tier === "정밀" ? "정밀 심의" : "간편 심의";
+  return field.risk.type === "conditional"
+    ? `${field.label}: ${describeTriggeredValue(field, value)} → ${tierLabel}`
+    : `${field.label} → ${tierLabel}`;
+}
+
 export function calculateTypeFieldRisk(
   assetType: AssetType,
   typeFields: Record<string, unknown>
@@ -113,14 +124,8 @@ export function calculateTypeFieldRisk(
     if (field.risk.type === "none") continue;
     if (!isFieldRiskTriggered(field, typeFields[field.key])) continue;
 
-    const tier = field.risk.tier;
-    const tierLabel = tier === "정밀" ? "정밀 심의" : "간편 심의";
-    reasons.push(
-      field.risk.type === "conditional"
-        ? `${field.label}: ${describeTriggeredValue(field, typeFields[field.key])} → ${tierLabel}`
-        : `${field.label} → ${tierLabel}`
-    );
-    result = maxReviewPath(result, RISK_TIER_TO_REVIEW_PATH[tier]);
+    reasons.push(describeFieldRisk(field, typeFields[field.key]));
+    result = maxReviewPath(result, RISK_TIER_TO_REVIEW_PATH[field.risk.tier]);
   }
 
   return { result, reasons };
