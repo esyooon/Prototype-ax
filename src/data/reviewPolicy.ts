@@ -34,12 +34,15 @@ export function calculateReviewPath(
   if (diag.q3 === "yes" && result === "AUTO_REGISTER") { reasons.push("사내 문서 읽기"); result = "OPERATION_REVIEW"; }
   else if (diag.q3 === "yes") { reasons.push("사내 문서 읽기"); }
 
+  // "이 자산이 무엇을 사용하나요?" 통합 선택지 기준 — 유료 AI/개발 도구를
+  // 선택하면 비용 검토, "기타"(용도 불명확)를 선택하면 운영자 확인 대상.
   const costReview =
-    (ctx.envSelections?.includes("Gemini API") ?? false) ||
-    (ctx.envSelections?.includes("Claude API") ?? false) ||
+    (ctx.envSelections?.includes("Gemini Enterprise") ?? false) ||
+    (ctx.envSelections?.includes("Claude") ?? false) ||
+    (ctx.envSelections?.includes("GitHub Copilot") ?? false) ||
     ctx.hasCost === "yes";
 
-  const operatorCheck = ctx.envSelections?.includes("잘 모르겠음") ?? false;
+  const operatorCheck = ctx.envSelections?.includes("기타") ?? false;
 
   return { result, reasons, costReview, operatorCheck };
 }

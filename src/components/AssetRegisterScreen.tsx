@@ -19,13 +19,12 @@ interface FormData {
   visibility: string;
   // step 3 automation fields
   trigger: string;
-  connectedServices: string;
   processingSteps: string;
   operations: string[];
   // step 3 other type fields (generic)
   genericContent: string;
-  // step 5
-  envSelections: string[];
+  // step 3 통합: "이 자산이 무엇을 사용하나요?" (구 연결 서비스 + 실행 환경)
+  usageSelections: string[];
   hasCost: DiagAnswer;
   // origin zone (step 2 상단) — 유형별 원문. 자가진단 힌트 스캔에도 쓰인다.
   originContent: string;
@@ -46,7 +45,7 @@ interface DiagState {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const STEPS = [
-  "자산 유형", "기본 정보", "심의 기준본", "자가진단", "실행 환경", "사전검사"
+  "자산 유형", "기본 정보", "자산 내용", "자가진단", "사전검사"
 ];
 
 const ASSET_TYPES: { type: AssetType; label: string; desc: string; badge: { bg: string; text: string } }[] = [
@@ -58,11 +57,31 @@ const ASSET_TYPES: { type: AssetType; label: string; desc: string; badge: { bg: 
   { type: "OTHER",      label: "기타",                   desc: "위 유형에 속하지 않는 AI 관련 자산",          badge: { bg: "bg-gray-100",   text: "text-gray-600"   } },
 ];
 
-const ENV_OPTIONS = [
-  "Gemini Enterprise", "Claude Team", "GitHub Copilot",
-  "Gemini API", "Claude API", "브라우저", "별도 서버",
-  "AI 모델 미사용", "기타", "잘 모르겠음",
+// ─── "이 자산이 무엇을 사용하나요?" (구 3단계 연결 서비스 + 5단계 실행 환경 통합) ──
+// 다중선택 결과에서 필요한 계정·라이선스를 자동 추론해 읽기전용으로 보여준다
+// (등록자가 직접 입력하지 않음). calculateReviewPath의 costReview/operatorCheck도
+// 이 선택지 값을 그대로 입력받는다 — reviewPolicy.ts 참고.
+const USAGE_OPTIONS = [
+  "Gemini Enterprise", "Claude", "GitHub Copilot",
+  "Google Docs·Sheets·Forms", "브라우저", "별도 서버", "기타",
 ];
+
+const REQUIRED_LICENSE_BY_USAGE: Partial<Record<string, string>> = {
+  "Gemini Enterprise": "Google Workspace 계정",
+  "Claude": "Claude Team/Enterprise 계정",
+  "GitHub Copilot": "GitHub Copilot 라이선스",
+  "Google Docs·Sheets·Forms": "Google Workspace 계정",
+  "별도 서버": "사내 서버 접근 권한",
+};
+
+function deriveRequiredLicenses(usageSelections: string[]): string[] {
+  const licenses = new Set<string>();
+  usageSelections.forEach((u) => {
+    const lic = REQUIRED_LICENSE_BY_USAGE[u];
+    if (lic) licenses.add(lic);
+  });
+  return Array.from(licenses);
+}
 
 const DIAG_QUESTIONS: { key: keyof DiagState; q: string; example: string; why: string }[] = [
   {
@@ -159,10 +178,9 @@ const DEMO_FORM: Partial<FormData> = {
   limitations: "",
   visibility: "전 임직원",
   trigger: "매주 금요일 오후 5시 (예약 실행)",
-  connectedServices: "Google Forms, Google Sheets, Google Docs, Gemini API",
   processingSteps: "1. 폼 응답 수집\n2. 주간 업무 분류\n3. 통합 문서 초안 생성\n4. 사용자 확인\n5. 문서 반영",
   operations: ["읽기", "문서 생성·수정"],
-  envSelections: ["Google Apps Script", "Gemini API"],
+  usageSelections: ["Gemini Enterprise", "Google Docs·Sheets·Forms"],
   hasCost: "yes",
 };
 
@@ -178,7 +196,7 @@ function runPreCheck(
   diag: DiagState
 ): ReturnType<typeof calculateReviewPath> {
   return calculateReviewPath(diag as SelfDiagnosisAnswers, {
-    envSelections: form.envSelections,
+    envSelections: form.usageSelections,
     hasCost: form.hasCost,
   });
 }
@@ -231,8 +249,8 @@ export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<FormData>({
     assetType: null, name: "", description: "", useCases: "", limitations: "",
-    visibility: "전 임직원", trigger: "", connectedServices: "", processingSteps: "",
-    operations: [], genericContent: "", envSelections: [], hasCost: null,
+    visibility: "전 임직원", trigger: "", processingSteps: "",
+    operations: [], genericContent: "", usageSelections: [], hasCost: null,
     originContent: "", originFileName: "", originLink: "", aiDraftApplied: false,
   });
   const [diag, setDiag] = useState<DiagState>({ q1: null, q2: null, q3: null, q4: null, q5: null, q6: null });
@@ -246,11 +264,11 @@ export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu
     if (step === 1) return form.assetType !== null;
     if (step === 2) return form.name.trim().length > 0 && form.description.trim().length > 0;
     if (step === 3) {
-      if (form.assetType === "AUTOMATION") return form.trigger.trim().length > 0 && form.connectedServices.trim().length > 0;
-      return true;
+      const usageOk = form.usageSelections.length > 0 && form.hasCost !== null;
+      if (form.assetType === "AUTOMATION") return form.trigger.trim().length > 0 && usageOk;
+      return usageOk;
     }
     if (step === 4) return Object.values(diag).every(v => v !== null);
-    if (step === 5) return form.envSelections.length > 0 && form.hasCost !== null;
     return true;
   }
 
@@ -261,7 +279,7 @@ export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu
     toast.success("등록 신청이 완료되었습니다.", { description: "정밀 심의 대기 상태로 접수되었습니다.", duration: 4000 });
   }
 
-  const check = step === 6 ? runPreCheck(form, diag) : null;
+  const check = step === 5 ? runPreCheck(form, diag) : null;
 
   if (submitted) {
     return <SubmittedState onNavigate={onNavigate} assetName={form.name || "자산"} />;
@@ -283,11 +301,10 @@ export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu
           {step === 2 && <Step2 form={form} patchForm={patchForm} fillDemo={fillDemo} />}
           {step === 3 && <Step3 form={form} patchForm={patchForm} />}
           {step === 4 && <Step4 diag={diag} setDiag={setDiag} tooltipKey={tooltipKey} setTooltipKey={setTooltipKey} originContent={form.originContent} />}
-          {step === 5 && <Step5 form={form} patchForm={patchForm} />}
-          {step === 6 && check && <Step6 check={check} form={form} onSubmit={handleSubmit} />}
+          {step === 5 && check && <Step5 check={check} form={form} onSubmit={handleSubmit} />}
 
           {/* Navigation */}
-          {step < 6 && (
+          {step < 5 && (
             <div className="flex items-center justify-between pt-2">
               <button
                 onClick={() => setStep(s => Math.max(1, s - 1))}
@@ -305,10 +322,10 @@ export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu
               </button>
             </div>
           )}
-          {step === 6 && (
+          {step === 5 && (
             <div className="flex items-center justify-start pt-2">
               <button
-                onClick={() => setStep(5)}
+                onClick={() => setStep(4)}
                 className="h-8 px-4 rounded border border-border text-[12px] text-foreground hover:bg-muted transition-colors"
               >
                 이전
@@ -547,9 +564,6 @@ function Step3({ form, patchForm }: { form: FormData; patchForm: (p: Partial<For
             <Field label="실행 트리거" required>
               <input className={inputCls} value={form.trigger} onChange={e => patchForm({ trigger: e.target.value })} placeholder="예: 매주 금요일 오후 5시(예약 실행) / 사용자가 버튼을 눌렀을 때(수동 실행) / 특정 문서가 업로드됐을 때(조건부 실행)" />
             </Field>
-            <Field label="연결 서비스" required hint="쉼표로 구분해 입력하세요.">
-              <input className={inputCls} value={form.connectedServices} onChange={e => patchForm({ connectedServices: e.target.value })} placeholder="예: Google Forms, Google Sheets, Gemini API" />
-            </Field>
             <Field label="처리 단계" hint="각 단계를 순서대로 입력하세요." badge={form.aiDraftApplied ? <AiDraftBadge /> : null}>
               <textarea className={`${textareaCls} ${form.aiDraftApplied ? "bg-primary/5" : ""}`} rows={5} value={form.processingSteps} onChange={e => patchForm({ processingSteps: e.target.value })} placeholder={"1. 폼 응답 수집\n2. 주간 업무 분류\n3. 통합 문서 초안 생성\n4. 사용자 확인\n5. 문서 반영"} />
             </Field>
@@ -641,7 +655,81 @@ function Step3({ form, patchForm }: { form: FormData; patchForm: (p: Partial<For
           </div>
         </SectionCard>
       )}
+
+      <UsageSection form={form} patchForm={patchForm} />
     </>
+  );
+}
+
+// ─── 통합 질문: 이 자산이 무엇을 사용하나요? (구 연결 서비스 + 실행 환경) ────────
+
+function UsageSection({ form, patchForm }: { form: FormData; patchForm: (p: Partial<FormData>) => void }) {
+  const toggleUsage = (usage: string) => {
+    const sel = form.usageSelections.includes(usage)
+      ? form.usageSelections.filter(u => u !== usage)
+      : [...form.usageSelections, usage];
+    patchForm({ usageSelections: sel });
+  };
+
+  const requiredLicenses = deriveRequiredLicenses(form.usageSelections);
+
+  return (
+    <SectionCard title="실행 환경과 라이선스">
+      <div className="flex flex-col gap-5">
+        <Field label="이 자산이 무엇을 사용하나요?" required hint="해당하는 항목을 모두 선택하세요.">
+          <div className="flex flex-wrap gap-2 mt-1">
+            {USAGE_OPTIONS.map(usage => (
+              <button
+                key={usage}
+                onClick={() => toggleUsage(usage)}
+                className={`h-8 px-3.5 rounded-full text-[12px] border font-medium transition-colors ${
+                  form.usageSelections.includes(usage)
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card text-foreground border-border hover:bg-muted"
+                }`}
+              >
+                {usage}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        <Field label="어떤 계정이나 라이선스가 필요한가요?">
+          <input
+            className={inputCls}
+            value={
+              form.usageSelections.length === 0
+                ? ""
+                : requiredLicenses.length === 0
+                ? "별도 라이선스 필요 없음"
+                : requiredLicenses.join(", ")
+            }
+            placeholder="위에서 선택하면 자동으로 표시됩니다."
+            readOnly
+          />
+          <p className="text-[11px] text-muted-foreground mt-1">위에서 선택한 항목을 바탕으로 자동으로 추론됩니다.</p>
+        </Field>
+
+        <Field label="별도 API 또는 서버 비용이 발생하나요?" required>
+          <div className="flex gap-2">
+            {(["yes", "no", "unknown"] as const).map(opt => (
+              <button
+                key={opt}
+                onClick={() => patchForm({ hasCost: opt })}
+                className={`h-8 px-4 rounded-full text-[12px] border font-medium transition-colors ${
+                  form.hasCost === opt
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card text-foreground border-border hover:bg-muted"
+                }`}
+              >
+                {opt === "yes" ? "예" : opt === "no" ? "아니오" : "잘 모르겠음"}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1">정확한 금액은 입력하지 않아도 됩니다. 비용 발생 여부만 선택하세요.</p>
+        </Field>
+      </div>
+    </SectionCard>
   );
 }
 
@@ -721,71 +809,7 @@ function Step4({
   );
 }
 
-// ─── Step 5: 실행 환경과 라이선스 ─────────────────────────────────────────────
-
-function Step5({ form, patchForm }: { form: FormData; patchForm: (p: Partial<FormData>) => void }) {
-  const toggleEnv = (env: string) => {
-    const sel = form.envSelections.includes(env)
-      ? form.envSelections.filter(e => e !== env)
-      : [...form.envSelections, env];
-    patchForm({ envSelections: sel });
-  };
-
-  return (
-    <SectionCard title="실행 환경과 라이선스">
-      <div className="flex flex-col gap-5">
-        <Field label="이 자산은 어디에서 실행되나요?" required hint="해당하는 항목을 모두 선택하세요.">
-          <div className="flex flex-wrap gap-2 mt-1">
-            {ENV_OPTIONS.map(env => (
-              <button
-                key={env}
-                onClick={() => toggleEnv(env)}
-                className={`h-8 px-3.5 rounded-full text-[12px] border font-medium transition-colors ${
-                  form.envSelections.includes(env)
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-card text-foreground border-border hover:bg-muted"
-                }`}
-              >
-                {env}
-              </button>
-            ))}
-          </div>
-        </Field>
-
-        <Field label="어떤 계정이나 라이선스가 필요한가요?">
-          <input
-            className={inputCls}
-            placeholder="예: Google Workspace, Gemini API 프로젝트"
-            value={form.envSelections.length > 0 ? form.envSelections.filter(e => !["브라우저", "별도 서버", "AI 모델 미사용", "기타", "잘 모르겠음"].includes(e)).join(", ") : ""}
-            readOnly
-          />
-          <p className="text-[11px] text-muted-foreground mt-1">위에서 선택한 항목이 자동으로 표시됩니다.</p>
-        </Field>
-
-        <Field label="별도 API 또는 서버 비용이 발생하나요?" required>
-          <div className="flex gap-2">
-            {(["yes", "no", "unknown"] as const).map(opt => (
-              <button
-                key={opt}
-                onClick={() => patchForm({ hasCost: opt })}
-                className={`h-8 px-4 rounded-full text-[12px] border font-medium transition-colors ${
-                  form.hasCost === opt
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-card text-foreground border-border hover:bg-muted"
-                }`}
-              >
-                {opt === "yes" ? "예" : opt === "no" ? "아니오" : "잘 모르겠음"}
-              </button>
-            ))}
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-1">정확한 금액은 입력하지 않아도 됩니다. 비용 발생 여부만 선택하세요.</p>
-        </Field>
-      </div>
-    </SectionCard>
-  );
-}
-
-// ─── Step 6: 사전검사 결과 ────────────────────────────────────────────────────
+// ─── Step 5: 사전검사 결과 ────────────────────────────────────────────────────
 
 const RESULT_CONFIG: Record<ReviewResult, { label: string; color: string; icon: React.ReactNode; desc: string }> = {
   AUTO_REGISTER:    { label: "자동 등록",  color: "text-green-700 bg-green-50 border-green-200",    icon: <CheckCircle2 size={18} />, desc: "별도 심의 없이 즉시 등록됩니다." },
@@ -794,7 +818,7 @@ const RESULT_CONFIG: Record<ReviewResult, { label: string; color: string; icon: 
   AUTO_REJECT:      { label: "자동 반려",  color: "text-red-700 bg-red-50 border-red-200",            icon: <XCircle size={18} />,       desc: "현재 정책에 따라 등록이 불가합니다." },
 };
 
-function Step6({
+function Step5({
   check, form, onSubmit,
 }: {
   check: ReturnType<typeof runPreCheck>;
@@ -879,7 +903,7 @@ function Step6({
 
 // ─── Diag summary panel ───────────────────────────────────────────────────────
 
-// runPreCheck(=calculateReviewPath)를 그대로 재사용한다 — Step6 최종 결과와
+// runPreCheck(=calculateReviewPath)를 그대로 재사용한다 — Step5 최종 결과와
 // 계산 로직을 절대 갈라뜨리지 않기 위해서다. diag/form은 부모(AssetRegisterScreen)의
 // state이므로 자가진단 버튼을 누르는 즉시 이 컴포넌트가 새 값으로 리렌더되어
 // 예상 심의 경로가 실시간으로 바뀐다.
