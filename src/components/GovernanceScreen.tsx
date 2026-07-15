@@ -503,9 +503,12 @@ function DetailView({
               </div>
             </div>
             {escalated ? (
-              <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-md text-[12px] text-red-700">
-                <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
-                자가진단은 <strong>{REVIEW_PATH_LABELS[selfCalculated!.result]}</strong>이었지만, 실제 데이터 기준 재계산 결과 <strong>{REVIEW_PATH_LABELS[recalculated.result]}</strong>(으)로 강제 승격되었습니다.
+              <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-md text-[12px]">
+                <AlertTriangle size={13} className="flex-shrink-0 mt-0.5 text-red-700" />
+                <div className="flex flex-col gap-1">
+                  <div className="text-foreground">자가 진단 결과 심의 경로: <span className="font-semibold">{REVIEW_PATH_LABELS[selfCalculated!.result]}</span></div>
+                  <div className="text-red-700">실 데이터 기준 심의 경로: <strong>{REVIEW_PATH_LABELS[recalculated.result]}</strong></div>
+                </div>
               </div>
             ) : (
               <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-md text-[12px] text-green-700">
