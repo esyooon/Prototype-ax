@@ -13,6 +13,7 @@ import { DIAG_QUESTION_TEXT, DIAG_QUESTION_ORDER } from "../data/reviewPolicy";
 // ─── Demo registrant ID ───────────────────────────────────────────────────────
 
 const DEMO_REGISTRANT_ID = "demo-registrant-001";
+const DEMO_OPERATOR_ID = "demo-operator-001";
 
 const PRE_PUBLISH_STATUSES = new Set<AssetStatus>([
   "DRAFT", "AUTO_CHECK", "REVIEW_PENDING", "IN_REVIEW",
@@ -236,7 +237,10 @@ export default function MyAssetsScreen({
     return <MyAssetsEmptyState onNavigate={onNavigate} />;
   }
 
-  const myAssets = assets.filter(a => a.registrantUserId === DEMO_REGISTRANT_ID);
+  // 등록자 역할과 운영자 역할은 서로 다른 소유자의 자산을 본다 — 운영자의
+  // "내 자산"에는 거버넌스 운영팀(AX기획팀)이 직접 만든 공식 자산이 뜬다.
+  const ownerId = role === "operator" ? DEMO_OPERATOR_ID : DEMO_REGISTRANT_ID;
+  const myAssets = assets.filter(a => a.registrantUserId === ownerId);
   const publishedAssets = myAssets.filter(a => a.status === "PUBLISHED" || a.status === "CONDITIONAL_APPROVAL");
   const inReviewAssets  = myAssets.filter(a => PRE_PUBLISH_STATUSES.has(a.status));
   const recentUserSum   = publishedAssets.reduce((s, a) => s + a.usage.recentUsers, 0);

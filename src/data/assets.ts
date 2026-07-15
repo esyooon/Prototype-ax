@@ -809,6 +809,7 @@ export const INITIAL_ASSETS: AIAsset[] = [
   // ─── asset-013 (공식 예시 — AX기획팀 제작, 다우오피스 AI 에이전트) ──────────
   {
     id: "asset-013",
+    registrantUserId: "demo-operator-001",
     name: "회의록 요약 도우미",
     assetType: "ASSISTANT",
     assetTypeLabel: "맞춤형 AI",
