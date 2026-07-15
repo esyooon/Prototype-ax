@@ -68,6 +68,8 @@ export interface AssetTypeField {
   options?: FieldOption[]; // select / multiselect / radio 전용
   placeholder?: string;
   hint?: string; // 필드 아래에 보조 설명으로 표시
+  groupLabel?: string; // 이 필드 위에 그룹 제목으로 표시 (연속된 체크박스 묶음의 첫 필드에 지정)
+  groupNote?: string; // 이 필드 아래에 그룹 전체 안내문으로 표시 (묶음의 마지막 필드에 지정)
 }
 
 export interface AssetTypeSchema {
@@ -199,32 +201,40 @@ const AUTOMATION_SCHEMA: AssetTypeSchema = {
       options: [
         { value: "GOOGLE_WORKSPACE", label: "Google Workspace" },
         { value: "SLACK", label: "Slack" },
-        { value: "EMAIL", label: "이메일" },
-        { value: "CALENDAR", label: "캘린더" },
         { value: "INTERNAL_SYSTEM", label: "사내 시스템" },
         { value: "OTHER", label: "기타" },
       ],
     },
     {
+      key: "doesRead",
+      label: "문서·데이터 조회",
+      inputType: "checkbox",
+      required: false,
+      groupLabel: "수행 동작",
+      // 조회는 사내 데이터 읽기와 성격이 같아 간편 심의 강도로 분류.
+      risk: { type: "always", tier: "간편", condition: "체크 시 간편 심의 — 사내 문서·데이터 읽기" },
+    },
+    {
       key: "doesSend",
-      label: "보내기 여부",
+      label: "메일·메시지 발송",
       inputType: "checkbox",
       required: false,
       risk: { type: "always", tier: "정밀", condition: "체크 시 항상 위험 — 되돌릴 수 없는 발송 동작" },
     },
     {
       key: "doesModify",
-      label: "고치기 여부",
+      label: "문서·데이터 수정",
       inputType: "checkbox",
       required: false,
       risk: { type: "always", tier: "정밀", condition: "체크 시 항상 위험 — 되돌릴 수 없는 변경 동작" },
     },
     {
       key: "doesDelete",
-      label: "지우기 여부",
+      label: "문서·데이터 삭제",
       inputType: "checkbox",
       required: false,
       risk: { type: "always", tier: "정밀", condition: "체크 시 항상 위험 — 되돌릴 수 없는 삭제 동작" },
+      groupNote: "조회만 하는 경우 간편 심의, 발송·수정·삭제 동작이 있는 경우 정밀 심의 대상으로 분류될 수 있습니다.",
     },
     {
       key: "executionMode",

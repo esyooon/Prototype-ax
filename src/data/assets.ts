@@ -343,6 +343,7 @@ export const INITIAL_ASSETS: AIAsset[] = [
     // 때 실제로 입력됐을 법한 B1 스키마 필드값을 그대로 재현한 것이다.
     registrationFields: {
       touchedServices: ["GOOGLE_WORKSPACE"],
+      doesRead: true,
       doesSend: false,
       doesModify: true,
       doesDelete: false,

@@ -201,6 +201,7 @@ const DEMO_FORM: Partial<FormData> = {
   operations: ["읽기", "문서 생성·수정"],
   typeFields: {
     touchedServices: ["GOOGLE_WORKSPACE"],
+    doesRead: true,
     doesSend: false,
     doesModify: true,
     doesDelete: false,
@@ -660,15 +661,23 @@ function SchemaField({
 }) {
   if (field.inputType === "checkbox") {
     return (
-      <label className="flex items-center gap-2 text-[12px] text-foreground cursor-pointer w-fit">
-        <input
-          type="checkbox"
-          checked={value === true}
-          onChange={(e) => onChange(e.target.checked)}
-          className="w-4 h-4 rounded border-border accent-primary"
-        />
-        {field.label}{field.required && <span className="text-red-500 ml-0.5">*</span>}
-      </label>
+      <div className="flex flex-col gap-2">
+        {field.groupLabel && (
+          <p className="text-[12px] font-medium text-foreground">{field.groupLabel}</p>
+        )}
+        <label className="flex items-center gap-2 text-[12px] text-foreground cursor-pointer w-fit">
+          <input
+            type="checkbox"
+            checked={value === true}
+            onChange={(e) => onChange(e.target.checked)}
+            className="w-4 h-4 rounded border-border accent-primary"
+          />
+          {field.label}{field.required && <span className="text-red-500 ml-0.5">*</span>}
+        </label>
+        {field.groupNote && (
+          <p className="text-[11px] text-muted-foreground">{field.groupNote}</p>
+        )}
+      </div>
     );
   }
 
