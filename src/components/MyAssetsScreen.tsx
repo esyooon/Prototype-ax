@@ -353,7 +353,7 @@ export default function MyAssetsScreen({
                 {isPrePublish ? (
                   <PrePublishCardBody asset={asset} />
                 ) : (
-                  <PublishedCardBody asset={asset} />
+                  <PublishedCardBody asset={asset} ticketCount={(tickets[asset.id] ?? []).length} />
                 )}
               </div>
             </div>
@@ -391,7 +391,7 @@ function PrePublishCardBody({ asset }: { asset: AIAsset }) {
   );
 }
 
-function PublishedCardBody({ asset }: { asset: AIAsset }) {
+function PublishedCardBody({ asset, ticketCount }: { asset: AIAsset; ticketCount: number }) {
   const u = asset.usage;
   return (
     <div className="flex flex-col gap-0">
@@ -404,9 +404,7 @@ function PublishedCardBody({ asset }: { asset: AIAsset }) {
       {u.favoriteCount != null && (
         <MetricRow label="즐겨찾기" value={`${u.favoriteCount}명`} />
       )}
-      {u.issueCount != null && (
-        <MetricRow label="오류 제보" value={`${u.issueCount}건`} />
-      )}
+      <MetricRow label="오류 제보" value={`${ticketCount}건`} />
       <p className="text-[10px] text-muted-foreground/70 mt-2 pt-1.5 border-t border-border/40">
         측정 기준: {u.measurementBasis}
       </p>
@@ -581,7 +579,10 @@ function PublishedDetail({
     ...(u.actionCount != null ? [{ icon: <Activity size={14} className="text-indigo-500" />, label: `${asset.usageActionLabel} 횟수`, value: `${u.actionCount}회` }] : []),
     { icon: <Building2 size={14} className="text-teal-500" />,          label: "사용 부서",                     value: `${u.departmentCount}개` },
     ...(u.favoriteCount != null ? [{ icon: <Star size={14} className="text-amber-500" />, label: "즐겨찾기",      value: `${u.favoriteCount}명` }] : []),
-    ...(u.issueCount != null ? [{ icon: <MessageSquareWarning size={14} className="text-red-400" />, label: "오류 제보", value: `${u.issueCount}건`, onClick: () => setTicketListOpen(true) }] : []),
+    // 실제 접수된 티켓 배열(tickets) 개수를 그대로 센다 — usage.issueCount(하드코딩
+    // 시드값)는 더 이상 참조하지 않는다. 티켓 목록 모달(TicketListModal)과 항상
+    // 같은 수를 보도록 같은 배열에서 계산한다.
+    { icon: <MessageSquareWarning size={14} className="text-red-400" />, label: "오류 제보", value: `${tickets.length}건`, onClick: () => setTicketListOpen(true) },
   ];
 
   return (

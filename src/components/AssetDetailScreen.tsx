@@ -42,13 +42,16 @@ const ACTION_ICONS: Record<string, React.ReactNode> = {
   "내용 확인": <BookOpenText size={15} />,
 };
 
-// ─── 오류 제보 처리 이력 (mock) ───────────────────────────────────────────────
-// 제보 원문·대화 내용은 노출하지 않고, 유형과 반영 버전만 보여준다.
-const REPORT_HISTORY = [
-  { type: "동작 오류",     version: "v1.2" },
-  { type: "결과 부정확",   version: "v1.1" },
-  { type: "사용 방법 문의", version: "v1.1" },
-];
+// ─── 오류 제보 처리 이력 ───────────────────────────────────────────────────────
+// 실제 티켓 배열(tickets)에서 계산한다 — 등록자 화면의 "오류 제보 N건" 배지·
+// 티켓 목록 모달과 항상 같은 수를 보도록 같은 배열을 기준으로 삼는다. 제보자
+// 보호를 위해 원문·대화(summary)는 노출하지 않고, 유형(짧은 분류 문구)과 반영
+// 버전만 보여준다. summary는 자유 텍스트라 "선택한 문의: " 뒤 첫 줄만 유형으로
+// 뽑고, 그 형식이 아니면 안전하게 "오류 제보"로 대체한다.
+function extractTicketType(summary: string): string {
+  const match = summary.match(/선택한 문의:\s*(.+)/);
+  return match ? match[1].trim() : "오류 제보";
+}
 
 // ─── 변경 이력 생성 ──────────────────────────────────────────────────────────
 
@@ -119,6 +122,7 @@ export default function AssetDetailScreen({
   const { assets, tickets, dispatch } = useAssets();
   const asset = getAssetById(assets, assetId);
   const myTickets = tickets[assetId] ?? [];
+  const appliedTickets = myTickets.filter((t) => t.status === "APPLIED");
 
   const [issueModalOpen,   setIssueModalOpen]   = useState(false);
   const [simOpen,          setSimOpen]          = useState(false);
@@ -285,7 +289,7 @@ export default function AssetDetailScreen({
                   onClick={() => setHistoryOpen((v) => !v)}
                   className="inline-flex items-center px-2 py-0.5 rounded text-[11px] text-muted-foreground bg-muted hover:bg-muted/70 transition-colors"
                 >
-                  오류 제보 3건 중 3건 반영
+                  오류 제보 {myTickets.length}건 중 {appliedTickets.length}건 반영
                 </button>
                 {historyOpen && (
                   <>
@@ -294,12 +298,16 @@ export default function AssetDetailScreen({
                       <div className="px-3 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                         처리 이력
                       </div>
-                      {REPORT_HISTORY.map((h, i) => (
-                        <div key={i} className="px-3 py-1.5 text-[12px] text-foreground flex items-center justify-between gap-2">
-                          <span>{h.type}</span>
-                          <span className="text-muted-foreground" style={{ fontFamily: "'DM Mono', monospace" }}>→ {h.version} 반영</span>
-                        </div>
-                      ))}
+                      {appliedTickets.length === 0 ? (
+                        <div className="px-3 py-1.5 text-[12px] text-muted-foreground">아직 반영된 항목이 없습니다.</div>
+                      ) : (
+                        appliedTickets.map((t) => (
+                          <div key={t.id} className="px-3 py-1.5 text-[12px] text-foreground flex items-center justify-between gap-2">
+                            <span className="truncate">{extractTicketType(t.summary)}</span>
+                            <span className="text-muted-foreground flex-shrink-0" style={{ fontFamily: "'DM Mono', monospace" }}>→ v{t.appliedVersion} 반영</span>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </>
                 )}
