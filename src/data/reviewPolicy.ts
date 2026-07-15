@@ -1,4 +1,7 @@
-import type { AIAsset, DiagQuestionAnswer, ReviewPath, SelfDiagnosisAnswers } from "./types";
+import type { AIAsset, AssetType, DiagQuestionAnswer, ReviewPath, SelfDiagnosisAnswers } from "./types";
+import { maxReviewPath } from "./types";
+import { ASSET_TYPE_FIELD_SCHEMAS, isFieldRiskTriggered, RISK_TIER_TO_REVIEW_PATH } from "./assetTypeSchemas";
+import type { AssetTypeField } from "./assetTypeSchemas";
 
 // ─── 심의 경로 계산 (공용) ───────────────────────────────────────────────────
 // 등록 시 자동 사전검사(AssetRegisterScreen)와 운영자의 경로 재계산
@@ -72,3 +75,53 @@ export const DIAG_QUESTION_TEXT: Record<keyof SelfDiagnosisAnswers, string> = {
 };
 
 export const DIAG_QUESTION_ORDER = Object.keys(DIAG_QUESTION_TEXT) as (keyof SelfDiagnosisAnswers)[];
+
+// ─── 유형별 등록 필드 위험 합산 (B3) ─────────────────────────────────────────
+// B1(assetTypeSchemas)의 risk 신호 + isFieldRiskTriggered로 현재 입력값이 위험을
+// 발동시키는 필드를 모두 걷어, 그중 가장 높은 tier를 이 유형 자체의 심의 경로로
+// 삼는다. 자가진단(calculateReviewPath)과는 완전히 다른 입력(유형별 필드 값)에서
+// 계산되므로 별도 함수로 두고, 호출부(AssetRegisterScreen의 runPreCheck)가 두
+// 결과를 maxReviewPath로 합산한다 — 자가진단이 낮게 나와도 유형별 필드에서 더
+// 높은 위험이 발동되면 항상 그쪽이 최종 결과를 덮어쓴다(반대는 안 됨).
+
+export interface TypeFieldRiskResult {
+  result: ReviewPath;
+  reasons: string[];
+}
+
+function describeTriggeredValue(field: AssetTypeField, value: unknown): string {
+  if (field.risk.type !== "conditional") return "";
+  const { triggerValues } = field.risk;
+  const values = Array.isArray(value) ? value : [value];
+  const labels: string[] = [];
+  for (const v of values) {
+    if (!triggerValues.includes(v as string | boolean)) continue;
+    labels.push(field.options?.find((o) => o.value === v)?.label ?? String(v));
+  }
+  return labels.join(", ");
+}
+
+export function calculateTypeFieldRisk(
+  assetType: AssetType,
+  typeFields: Record<string, unknown>
+): TypeFieldRiskResult {
+  const schema = ASSET_TYPE_FIELD_SCHEMAS[assetType];
+  let result: ReviewPath = "AUTO_REGISTER";
+  const reasons: string[] = [];
+
+  for (const field of schema.fields) {
+    if (field.risk.type === "none") continue;
+    if (!isFieldRiskTriggered(field, typeFields[field.key])) continue;
+
+    const tier = field.risk.tier;
+    const tierLabel = tier === "정밀" ? "정밀 심의" : "간편 심의";
+    reasons.push(
+      field.risk.type === "conditional"
+        ? `${field.label}: ${describeTriggeredValue(field, typeFields[field.key])} → ${tierLabel}`
+        : `${field.label} → ${tierLabel}`
+    );
+    result = maxReviewPath(result, RISK_TIER_TO_REVIEW_PATH[tier]);
+  }
+
+  return { result, reasons };
+}

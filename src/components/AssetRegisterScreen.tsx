@@ -3,9 +3,9 @@ import { toast } from "sonner";
 import { ChevronRight, Info, Paperclip, Image as ImageIcon, CheckCircle2, AlertTriangle, XCircle, Clock, Sparkles, Bot } from "lucide-react";
 import { useAssets } from "../context/AssetContext";
 import type { AssetType, ReviewPath, SelfDiagnosisAnswers } from "../data/types";
-import { calculateReviewPath } from "../data/reviewPolicy";
+import { calculateReviewPath, calculateTypeFieldRisk } from "../data/reviewPolicy";
 import { ASSET_TYPE_FIELD_SCHEMAS, type AssetTypeField } from "../data/assetTypeSchemas";
-import { ASSET_TYPE_LABELS } from "../data/types";
+import { ASSET_TYPE_LABELS, maxReviewPath } from "../data/types";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -217,15 +217,28 @@ const DEMO_DIAG: DiagState = { q1: "no", q2: "yes", q3: "yes", q4: "yes", q5: "n
 // 실제 계산은 등록·운영자 화면이 공유하는 calculateReviewPath(공용 함수)가
 // 담당한다. 여기서는 마법사 단계에서 쓰는 로컬 폼 상태를 그 함수의 입력
 // 형태로 변환만 한다.
+// B3: 자가진단 기반 결과(calculateReviewPath)와 유형별 필드 위험 합산 결과
+// (calculateTypeFieldRisk)를 maxReviewPath로 합쳐 더 엄격한 쪽을 최종 경로로
+// 삼는다 — 자가진단이 "간편"이어도 유형별 필드에서 "정밀" 위험이 하나라도
+// 발동되면 최종은 항상 "정밀"이 된다(반대로 자가진단이 유형별 결과를 눌러
+// 낮추는 일은 없다).
 
 function runPreCheck(
   form: FormData,
   diag: DiagState
 ): ReturnType<typeof calculateReviewPath> {
-  return calculateReviewPath(diag as SelfDiagnosisAnswers, {
+  const diagCheck = calculateReviewPath(diag as SelfDiagnosisAnswers, {
     envSelections: form.usageSelections,
     hasCost: form.hasCost,
   });
+  if (!form.assetType) return diagCheck;
+
+  const typeRisk = calculateTypeFieldRisk(form.assetType, form.typeFields);
+  return {
+    ...diagCheck,
+    result: maxReviewPath(diagCheck.result, typeRisk.result),
+    reasons: [...diagCheck.reasons, ...typeRisk.reasons],
+  };
 }
 
 // ─── Shared UI helpers ────────────────────────────────────────────────────────
@@ -361,8 +374,8 @@ export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu
           )}
         </div>
 
-        {/* Side panel: shows live diagnosis summary from step 4 onward */}
-        {step >= 4 && (
+        {/* Side panel: shows live diagnosis summary from step 3 onward (유형별 필드 입력 시점부터 즉시 반영) */}
+        {step >= 3 && (
           <div className="w-[220px] flex-shrink-0 sticky top-0">
             <DiagSummaryPanel diag={diag} form={form} />
           </div>

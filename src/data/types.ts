@@ -17,6 +17,20 @@ export type AssetStatus =
 
 export type ReviewPath = "AUTO_REGISTER" | "OPERATION_REVIEW" | "DEEP_REVIEW" | "AUTO_REJECT";
 
+// 위험도 순서: 자동등록 < 간편심의 < 정밀심의 < 자동반려. 자가진단 결과와 유형별
+// 위험 신호처럼 서로 다른 곳에서 계산된 여러 ReviewPath를 합산할 때, 항상 더
+// 엄격한(숫자가 큰) 쪽을 최종 결과로 채택하는 데 쓰는 공용 비교 함수.
+export const REVIEW_PATH_SEVERITY: Record<ReviewPath, number> = {
+  AUTO_REGISTER: 0,
+  OPERATION_REVIEW: 1,
+  DEEP_REVIEW: 2,
+  AUTO_REJECT: 3,
+};
+
+export function maxReviewPath(a: ReviewPath, b: ReviewPath): ReviewPath {
+  return REVIEW_PATH_SEVERITY[a] >= REVIEW_PATH_SEVERITY[b] ? a : b;
+}
+
 export type CostMeasurementType = "LICENSE" | "ACTUAL" | "ESTIMATED" | "PROXY" | "NONE";
 
 // ─── 신뢰 배지 등급 ──────────────────────────────────────────────────────────
