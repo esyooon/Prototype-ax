@@ -60,6 +60,7 @@ export interface AssetTypeField {
   risk: RiskSignal;
   options?: FieldOption[]; // select / multiselect / radio 전용
   placeholder?: string;
+  hint?: string; // 필드 아래에 보조 설명으로 표시
 }
 
 export interface AssetTypeSchema {
@@ -313,6 +314,16 @@ const MCP_SCHEMA: AssetTypeSchema = {
       required: true,
       risk: { type: "none" },
       placeholder: "예: Jira, GitHub, 사내 DB",
+    },
+    {
+      key: "connectionInfo",
+      label: "연결 정보 (서버 주소 또는 설정 파일)",
+      inputType: "textarea",
+      required: true,
+      // 공유용 실물 정보 — 다른 직원이 그대로 가져다 쓰는 값이라 그 자체는 위험 신호가 아니다.
+      risk: { type: "none" },
+      placeholder: "예: https://mcp.internal.daou.co.kr/jira 또는 .mcp.json 내용 붙여넣기",
+      hint: "다른 직원이 이 정보로 자신의 AI 클라이언트에 연결합니다.",
     },
     {
       key: "permissionScopeReason",

@@ -657,7 +657,7 @@ function SchemaField({
   }
 
   return (
-    <Field label={field.label} required={field.required}>
+    <Field label={field.label} required={field.required} hint={field.hint}>
       {field.inputType === "text" && (
         <input
           className={inputCls}
