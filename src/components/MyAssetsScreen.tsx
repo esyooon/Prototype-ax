@@ -519,7 +519,7 @@ function PrePublishDetail({
               {[
                 { label: "유형",      value: asset.assetTypeLabel },
                 { label: "카테고리",  value: asset.category },
-                { label: "공개 범위", value: asset.visibility },
+                { label: "공개 범위", value: <>{asset.visibility} <span className="text-muted-foreground font-normal text-[10px]">(심의 배정)</span></> },
                 { label: "실행 환경", value: asset.executionEnvironment.join(", ") },
                 { label: "비용",      value: asset.cost.display },
               ].map(r => (
@@ -652,7 +652,7 @@ function PublishedDetail({
               {[
                 { label: "유형",      value: asset.assetTypeLabel },
                 { label: "카테고리",  value: asset.category },
-                { label: "공개 범위", value: asset.visibility },
+                { label: "공개 범위", value: <>{asset.visibility} <span className="text-muted-foreground font-normal text-[10px]">(심의 배정)</span></> },
                 { label: "실행 환경", value: asset.executionEnvironment.join(", ") },
                 { label: "비용",      value: asset.cost.display },
               ].map(r => (

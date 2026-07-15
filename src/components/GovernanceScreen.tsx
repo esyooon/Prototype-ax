@@ -477,7 +477,10 @@ function DetailView({
               <InfoRow label="설명" value={asset.description} />
               <InfoRow label="등록자" value={`${asset.ownerName} · ${asset.ownerDepartment}`} />
               <InfoRow label="유형" value={asset.assetTypeLabel} />
-              <InfoRow label="공개 범위" value={asset.visibility} />
+              <InfoRow
+                label="공개 범위"
+                value={<>{asset.visibility} <span className="text-muted-foreground font-normal text-[10px]">(심의 배정)</span></>}
+              />
               <InfoRow label="등록일" value={asset.createdAt} />
             </div>
           </SectionCard>

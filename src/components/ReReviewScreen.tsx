@@ -130,7 +130,7 @@ export default function ReReviewScreen() {
                 {[
                   { label: "유형",      value: selected.assetTypeLabel },
                   { label: "등록자",    value: `${selected.ownerName} · ${selected.ownerDepartment}` },
-                  { label: "공개 범위", value: selected.visibility },
+                  { label: "공개 범위", value: <>{selected.visibility} <span className="text-muted-foreground font-normal text-[10px]">(심의 배정)</span></> },
                   { label: "버전",      value: `v${selected.version}` },
                 ].map(r => (
                   <div key={r.label} className="flex gap-3">
