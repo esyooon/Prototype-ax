@@ -180,7 +180,7 @@ const AUTOMATION_SCHEMA: AssetTypeSchema = {
   fields: [
     {
       key: "touchedServices",
-      label: "건드리는 서비스",
+      label: "대상 서비스",
       inputType: "multiselect",
       required: false,
       risk: { type: "none" },
