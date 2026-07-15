@@ -84,13 +84,23 @@ export const DIAG_QUESTION_ORDER = Object.keys(DIAG_QUESTION_TEXT) as (keyof Sel
 // 결과를 maxReviewPath로 합산한다 — 자가진단이 낮게 나와도 유형별 필드에서 더
 // 높은 위험이 발동되면 항상 그쪽이 최종 결과를 덮어쓴다(반대는 안 됨).
 
+// 반려 사유 3종 세트 — 등록자 보호 원칙: 반려는 막다른 골목이 아니므로 "왜"와
+// "어떻게 고치나"를 항상 함께 준다. resubmittable은 항상 true로 둔다(이 게이트는
+// 영구 차단이 아니라 조건을 바꾸면 풀리는 자격 판정이라서다).
+export interface RejectInfo {
+  reason: string;
+  guidance: string;
+  resubmittable: true;
+}
+
 export interface TypeFieldRiskResult {
   result: ReviewPath;
   reasons: string[];
+  reject?: RejectInfo;
 }
 
 function describeTriggeredValue(field: AssetTypeField, value: unknown): string {
-  if (field.risk.type !== "conditional") return "";
+  if (field.risk.type !== "conditional" && field.risk.type !== "reject") return "";
   const { triggerValues } = field.risk;
   const values = Array.isArray(value) ? value : [value];
   const labels: string[] = [];
@@ -106,6 +116,7 @@ function describeTriggeredValue(field: AssetTypeField, value: unknown): string {
 // 공용화한다 — 같은 스키마, 다른 화면이라도 사유 표현은 갈라지면 안 된다.
 export function describeFieldRisk(field: AssetTypeField, value: unknown): string {
   if (field.risk.type === "none") return field.label;
+  if (field.risk.type === "reject") return `${field.label}: ${describeTriggeredValue(field, value)} → 자동 반려`;
   const tierLabel = field.risk.tier === "정밀" ? "정밀 심의" : "간편 심의";
   return field.risk.type === "conditional"
     ? `${field.label}: ${describeTriggeredValue(field, value)} → ${tierLabel}`
@@ -117,11 +128,27 @@ export function calculateTypeFieldRisk(
   typeFields: Record<string, unknown>
 ): TypeFieldRiskResult {
   const schema = ASSET_TYPE_FIELD_SCHEMAS[assetType];
+
+  // 자격 축 게이트 — 위험도(간편/정밀) 계산보다 먼저 본다. 하나라도 걸리면
+  // 위험 합산 없이 즉시 자동 반려로 끝낸다(규정이 이미 판단을 끝낸 영역이라
+  // "더 위험한 다른 필드가 있으니 정밀로 낮춘다" 같은 타협이 있을 수 없다).
+  for (const field of schema.fields) {
+    if (field.risk.type !== "reject") continue;
+    if (!isFieldRiskTriggered(field, typeFields[field.key])) continue;
+
+    return {
+      result: "AUTO_REJECT",
+      reasons: [field.risk.reason],
+      reject: { reason: field.risk.reason, guidance: field.risk.guidance, resubmittable: true },
+    };
+  }
+
+  // 위험 축 — 자격 미달이 아닌 나머지 필드만 간편/정밀로 합산한다.
   let result: ReviewPath = "AUTO_REGISTER";
   const reasons: string[] = [];
 
   for (const field of schema.fields) {
-    if (field.risk.type === "none") continue;
+    if (field.risk.type === "none" || field.risk.type === "reject") continue;
     if (!isFieldRiskTriggered(field, typeFields[field.key])) continue;
 
     reasons.push(describeFieldRisk(field, typeFields[field.key]));

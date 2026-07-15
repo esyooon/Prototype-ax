@@ -29,10 +29,16 @@ export type FieldInputType =
 // always: 이 필드가 채워지면(필수 텍스트류) / 체크되면(checkbox) 무조건 위험.
 // conditional: 특정 값일 때만 위험 — condition에 사람이 읽을 조건을,
 //   triggerValues에 실제로 위험을 발동시키는 값(들)을 명시한다.
+// reject: "위험"이 아니라 "자격 미달" — 심의 강도(간편/정밀)를 매기는 대상이
+//   아니라 애초에 등록 자격이 없는 조합이다. 이 신호가 걸리면 위험도 계산
+//   자체를 건너뛰고 즉시 자동 반려(AUTO_REJECT)로 간다(reviewPolicy.ts 참고).
+//   reason은 왜 반려됐는지, guidance는 어떻게 고치면 재등록할 수 있는지를
+//   등록자가 그대로 읽을 수 있는 문장으로 담는다 — 반려는 막다른 골목이
+//   아니라 항상 "고치는 법"을 동반해야 한다는 원칙 때문이다.
 //
 // tier는 심의 강도다. calculateReviewPath의 ReviewPath와 맞춰뒀다:
 //   "간편" = OPERATION_REVIEW(간편 심의) — 예: 사내 데이터 읽기
-//   "정밀" = DEEP_REVIEW(정밀 심의)     — 예: 되돌릴 수 없는 변경·자율 실행·개인키
+//   "정밀" = DEEP_REVIEW(정밀 심의)     — 예: 되돌릴 수 없는 변경·자율 실행
 export type RiskTier = "간편" | "정밀";
 
 export const RISK_TIER_TO_REVIEW_PATH: Record<RiskTier, ReviewPath> = {
@@ -43,7 +49,8 @@ export const RISK_TIER_TO_REVIEW_PATH: Record<RiskTier, ReviewPath> = {
 export type RiskSignal =
   | { type: "none" }
   | { type: "always"; tier: RiskTier; condition: string; triggerValues?: undefined }
-  | { type: "conditional"; tier: RiskTier; condition: string; triggerValues: (string | boolean)[] };
+  | { type: "conditional"; tier: RiskTier; condition: string; triggerValues: (string | boolean)[] }
+  | { type: "reject"; condition: string; triggerValues: (string | boolean)[]; reason: string; guidance: string };
 
 // ─── 필드 / 스키마 ──────────────────────────────────────────────────────────
 
@@ -81,11 +88,16 @@ export function isFieldRiskTriggered(field: AssetTypeField, value: unknown): boo
     return typeof value === "string" ? value.trim().length > 0 : value != null;
   }
 
-  // conditional
+  // conditional / reject — 둘 다 triggerValues 매칭 방식은 동일하다.
   if (Array.isArray(value)) {
-    return value.some((v) => field.risk.type === "conditional" && field.risk.triggerValues.includes(v as string));
+    return value.some((v) =>
+      (field.risk.type === "conditional" || field.risk.type === "reject") && field.risk.triggerValues.includes(v as string)
+    );
   }
-  return field.risk.type === "conditional" && field.risk.triggerValues.includes(value as string | boolean);
+  return (
+    (field.risk.type === "conditional" || field.risk.type === "reject") &&
+    field.risk.triggerValues.includes(value as string | boolean)
+  );
 }
 
 // ─── 프롬프트 ───────────────────────────────────────────────────────────────
@@ -344,7 +356,15 @@ const MCP_SCHEMA: AssetTypeSchema = {
         { value: "PRIVATE_KEY", label: "개인키" },
         { value: "OTHER", label: "기타" },
       ],
-      risk: { type: "conditional", tier: "정밀", condition: "인증 방식 = 개인키", triggerValues: ["PRIVATE_KEY"] },
+      // 자격 축: 개인키는 "위험도가 높은 인증"이 아니라 "허용되지 않는 인증"이다.
+      // 규정이 이미 판단을 끝냈으므로 정밀 심의가 아니라 자동 반려로 간다.
+      risk: {
+        type: "reject",
+        condition: "인증 방식 = 개인키",
+        triggerValues: ["PRIVATE_KEY"],
+        reason: "개인 키 인증은 사내 보안 가이드 6.4에 따라 등록할 수 없습니다.",
+        guidance: "OAuth 등 승인된 인증 방식으로 변경하면 다시 등록할 수 있습니다.",
+      },
     },
     {
       key: "prerequisitePermissions",

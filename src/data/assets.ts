@@ -895,4 +895,70 @@ export const INITIAL_ASSETS: AIAsset[] = [
       ],
     },
   },
+
+  // ─── asset-014 (자동 반려 데모 — 자격 축 게이트: MCP 개인키 인증) ────────────
+  // 운영자 심의를 거치지 않고 등록 시점에 시스템이 즉시 반려한 경우를 보여주는
+  // 시드. "내 자산"에서 상태 배지·반려 사유·진행 바가 제출 단계에서 멈추는
+  // 모습을 확인할 수 있도록 registrantUserId를 데모 등록자로 맞춰 뒀다.
+  {
+    id: "asset-014",
+    registrantUserId: "demo-registrant-001",
+    name: "고객 데이터 동기화 커넥터",
+    assetType: "MCP",
+    assetTypeLabel: "시스템 연결 도구(MCP)",
+    category: "데이터 동기화",
+    description: "고객 데이터를 외부 CRM과 주기적으로 동기화하는 연결 도구입니다.",
+    ownerName: "이성윤",
+    ownerDepartment: "AX기획팀",
+    status: "AUTO_REJECTED",
+    showOnCatalog: false,
+    isFeatured: false,
+    visibility: "AX기획팀",
+    version: "0.1.0",
+    createdWith: [],
+    executionEnvironment: ["MCP 서버"],
+    requiredLicenses: [],
+    usageActionLabel: "연결 방법",
+    usageConditions: [],
+    cardBadges: [],
+    dataHandling: {
+      summary: "고객 데이터를 외부 CRM과 동기화",
+      sensitivity: "개인정보·고객정보",
+      externalTransfer: true,
+      storage: "동기화 로그 저장",
+    },
+    permissionLevel: ["고객 데이터 읽기·쓰기"],
+    humanConfirmationRequired: true,
+    knownLimitations: [],
+    cost: {
+      measurementType: "NONE",
+      display: "추가 비용 없음",
+      note: "반려 상태 — 실제 실행 없음",
+    },
+    usage: {
+      totalCount: 0,
+      recentUsers: 0,
+      departmentCount: 0,
+      measurementBasis: "—",
+    },
+    review: {
+      stage: "AUTO_REJECT",
+      reasons: [
+        "개인 키 인증은 사내 보안 가이드 6.4에 따라 등록할 수 없습니다.",
+        "OAuth 등 승인된 인증 방식으로 변경하면 다시 등록할 수 있습니다.",
+      ],
+      additionalReviews: [],
+      policyVersion: "v2025.2",
+    },
+    createdAt: "2026-07-10",
+    lastUpdated: "2026-07-10",
+    isFavorite: false,
+    typeSpecific: {},
+    registrationFields: {
+      connectedSystem: "외부 CRM",
+      connectionInfo: "https://mcp.internal.daou.co.kr/crm-sync",
+      permissionScopeReason: "고객 데이터 조회 및 동기화 권한 — CRM 연동을 위해 필요",
+      authMethod: "PRIVATE_KEY",
+    },
+  },
 ];

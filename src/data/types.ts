@@ -13,7 +13,10 @@ export type AssetStatus =
   | "PUBLISHED"
   | "CHECKING"
   | "SUSPENDED"
-  | "RETIRED";
+  | "RETIRED"
+  // 자격 축 게이트(reject 위험신호)에 걸려 운영자를 거치지 않고 시스템이 즉시
+  // 반려한 상태 — 심의 대기열(REVIEW_PENDING 등)에는 절대 들어가지 않는다.
+  | "AUTO_REJECTED";
 
 export type ReviewPath = "AUTO_REGISTER" | "OPERATION_REVIEW" | "DEEP_REVIEW" | "AUTO_REJECT";
 
@@ -167,6 +170,7 @@ export const ASSET_STATUS_LABELS: Record<AssetStatus, string> = {
   CHECKING: "확인 중",
   SUSPENDED: "사용 중지",
   RETIRED: "폐기",
+  AUTO_REJECTED: "반려",
 };
 
 export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
@@ -205,4 +209,5 @@ export const ASSET_STATUS_CHIP: Record<AssetStatus, { bg: string; text: string }
   CHECKING:             { bg: "bg-blue-50",     text: "text-blue-600"   },
   SUSPENDED:            { bg: "bg-red-100",     text: "text-red-700"    },
   RETIRED:              { bg: "bg-gray-200",    text: "text-gray-500"   },
+  AUTO_REJECTED:        { bg: "bg-red-100",     text: "text-red-700"    },
 };

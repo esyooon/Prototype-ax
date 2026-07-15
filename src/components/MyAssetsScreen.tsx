@@ -17,7 +17,7 @@ const DEMO_OPERATOR_ID = "demo-operator-001";
 
 const PRE_PUBLISH_STATUSES = new Set<AssetStatus>([
   "DRAFT", "AUTO_CHECK", "REVIEW_PENDING", "IN_REVIEW",
-  "REVISION_REQUESTED", "RESUBMITTED",
+  "REVISION_REQUESTED", "RESUBMITTED", "AUTO_REJECTED",
 ]);
 
 // ─── Journey (3단계 바) + 상세줄 ───────────────────────────────────────────────
@@ -30,7 +30,9 @@ const PRE_PUBLISH_STATUSES = new Set<AssetStatus>([
 const JOURNEY_LABELS = ["제출", "심의 중", "심의 완료"] as const;
 
 function getJourneyStage(status: AssetStatus): 1 | 2 | 3 {
-  if (status === "DRAFT" || status === "AUTO_CHECK") return 1;
+  // AUTO_REJECTED는 운영자 심의(2단계)를 아예 거치지 않고 시스템이 제출 단계에서
+  // 바로 반려한 것이므로, 바를 앞으로 보내지 않고 "제출"에 멈춰 둔다.
+  if (status === "DRAFT" || status === "AUTO_CHECK" || status === "AUTO_REJECTED") return 1;
   if ((["REVIEW_PENDING", "IN_REVIEW", "REVISION_REQUESTED", "RESUBMITTED"] as AssetStatus[]).includes(status)) return 2;
   return 3;
 }
@@ -80,6 +82,14 @@ function getStatusDetail(asset: AIAsset, ctx: StatusDetailCtx): StatusDetail {
     }
     case "RETIRED":
       return { text: "폐기됨", tone: "neutral", org: "—" };
+    case "AUTO_REJECTED": {
+      const [reason, guidance] = asset.review.reasons;
+      return {
+        text: `반려 — ${reason ?? "자격 요건을 충족하지 못했습니다."}${guidance ? ` ${guidance}` : ""}`,
+        tone: "danger",
+        org: "시스템 자동 판정 (운영자 미배정)",
+      };
+    }
     default:
       return { text: "처리 중", tone: "neutral", org: "거버넌스 운영팀" };
   }
@@ -150,6 +160,7 @@ function nextActionLabel(status: AssetStatus): { text: string; urgent: boolean }
     PUBLISHED:            { text: "게시됨",                urgent: false },
     CHECKING:             { text: "오류 제보 확인 대기",   urgent: false },
     SUSPENDED:            { text: "원인 파악 후 재등록 검토", urgent: true },
+    AUTO_REJECTED:        { text: "수정 후 재등록 필요",    urgent: true },
   };
   return map[status] ?? { text: "처리 중", urgent: false };
 }
@@ -271,6 +282,7 @@ export default function MyAssetsScreen({
           correctionApplied={correctionApplied}
           onApplyCorrection={() => handleApplyCorrection(selectedAsset)}
           onResubmit={() => handleResubmit(selectedAsset)}
+          onEditAndResubmit={onNavigate ? () => { onNavigate("asset-register"); setSelectedId(null); } : undefined}
           onBack={() => { setSelectedId(null); setCorrectionApplied(false); }}
         />
       );
@@ -416,7 +428,7 @@ function PublishedCardBody({ asset, ticketCount }: { asset: AIAsset; ticketCount
 
 function PrePublishDetail({
   asset, revisionNotes, approvalConditions, checkingInfo, correctionApplied,
-  onApplyCorrection, onResubmit, onBack,
+  onApplyCorrection, onResubmit, onEditAndResubmit, onBack,
 }: {
   asset: AIAsset;
   revisionNotes: string[];
@@ -425,6 +437,7 @@ function PrePublishDetail({
   correctionApplied: boolean;
   onApplyCorrection: () => void;
   onResubmit: () => void;
+  onEditAndResubmit?: () => void;
   onBack: () => void;
 }) {
   const stage = getJourneyStage(asset.status);
@@ -453,6 +466,30 @@ function PrePublishDetail({
             <JourneyBar stage={stage} />
             <StatusDetailLine detail={detail} />
           </SectionCard>
+
+          {/* AUTO_REJECTED — 운영자 심의 없이 시스템이 즉시 반려한 경우. 등록자
+              보호 원칙에 따라 사유와 함께 "고치는 법"을 항상 같이 보여준다. */}
+          {asset.status === "AUTO_REJECTED" && asset.review.reasons.length > 0 && (
+            <SectionCard title="자동 반려 사유">
+              <div className="flex items-start gap-2.5 text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-md p-3">
+                <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
+                <span>{asset.review.reasons[0]}</span>
+              </div>
+              {asset.review.reasons[1] && (
+                <p className="text-[12px] text-foreground mt-3">{asset.review.reasons[1]}</p>
+              )}
+              {onEditAndResubmit && (
+                <div className="flex items-center gap-3 pt-3 mt-3 border-t border-border">
+                  <button
+                    onClick={onEditAndResubmit}
+                    className="flex items-center gap-1.5 h-8 px-4 rounded bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90 transition-colors"
+                  >
+                    <RotateCcw size={12} /> 수정하러 가기
+                  </button>
+                </div>
+              )}
+            </SectionCard>
+          )}
 
           {/* REVISION_REQUESTED */}
           {asset.status === "REVISION_REQUESTED" && revisionNotes.length > 0 && (

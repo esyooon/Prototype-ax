@@ -4,6 +4,7 @@ import { ChevronRight, Info, Paperclip, Image as ImageIcon, CheckCircle2, AlertT
 import { useAssets } from "../context/AssetContext";
 import type { AssetType, ReviewPath, SelfDiagnosisAnswers } from "../data/types";
 import { calculateReviewPath, calculateTypeFieldRisk } from "../data/reviewPolicy";
+import type { RejectInfo } from "../data/reviewPolicy";
 import { ASSET_TYPE_FIELD_SCHEMAS, type AssetTypeField } from "../data/assetTypeSchemas";
 import { ASSET_TYPE_LABELS, maxReviewPath } from "../data/types";
 
@@ -222,11 +223,14 @@ const DEMO_DIAG: DiagState = { q1: "no", q2: "yes", q3: "yes", q4: "yes", q5: "n
 // 삼는다 — 자가진단이 "간편"이어도 유형별 필드에서 "정밀" 위험이 하나라도
 // 발동되면 최종은 항상 "정밀"이 된다(반대로 자가진단이 유형별 결과를 눌러
 // 낮추는 일은 없다).
+// B3수정: 유형별 필드에 reject(자격 축) 신호가 걸리면, 위험도 합산을 아예
+// 건너뛰고 즉시 AUTO_REJECT를 반환한다 — 자가진단이 아무리 낮아도 자격 미달은
+// 위험도로 상쇄되지 않는다.
 
 function runPreCheck(
   form: FormData,
   diag: DiagState
-): ReturnType<typeof calculateReviewPath> {
+): ReturnType<typeof calculateReviewPath> & { reject?: RejectInfo } {
   const diagCheck = calculateReviewPath(diag as SelfDiagnosisAnswers, {
     envSelections: form.usageSelections,
     hasCost: form.hasCost,
@@ -234,6 +238,9 @@ function runPreCheck(
   if (!form.assetType) return diagCheck;
 
   const typeRisk = calculateTypeFieldRisk(form.assetType, form.typeFields);
+  if (typeRisk.reject) {
+    return { ...diagCheck, result: "AUTO_REJECT", reasons: typeRisk.reasons, reject: typeRisk.reject };
+  }
   return {
     ...diagCheck,
     result: maxReviewPath(diagCheck.result, typeRisk.result),
@@ -341,7 +348,7 @@ export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu
           {step === 2 && <Step2 form={form} patchForm={patchForm} fillDemo={fillDemo} />}
           {step === 3 && <Step3 form={form} patchForm={patchForm} />}
           {step === 4 && <Step4 diag={diag} setDiag={setDiag} tooltipKey={tooltipKey} setTooltipKey={setTooltipKey} originContent={form.originContent} />}
-          {step === 5 && check && <Step5 check={check} form={form} onSubmit={handleSubmit} />}
+          {step === 5 && check && <Step5 check={check} form={form} onSubmit={handleSubmit} onEditField={() => setStep(3)} />}
 
           {/* Navigation */}
           {step < 5 && (
@@ -913,13 +920,46 @@ const RESULT_CONFIG: Record<ReviewResult, { label: string; color: string; icon: 
 };
 
 function Step5({
-  check, form, onSubmit,
+  check, form, onSubmit, onEditField,
 }: {
   check: ReturnType<typeof runPreCheck>;
   form: FormData;
   onSubmit: () => void;
+  onEditField: () => void;
 }) {
   const cfg = RESULT_CONFIG[check.result];
+
+  // B3수정: 자격 축 게이트(reject)에 걸리면 위험도 심의 화면 자체를 보여주지
+  // 않는다 — 심의 대기열로 보낼 대상이 아니므로 제출 버튼도 없다. 사유와
+  // "고치는 법"만 보여주고 등록자를 그 필드로 돌려보낸다.
+  if (check.reject) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className={`flex items-start gap-4 p-5 rounded-md border ${cfg.color}`}>
+          <div className="flex-shrink-0 mt-0.5">{cfg.icon}</div>
+          <div>
+            <p className="text-[15px] font-semibold">처리 경로: {cfg.label}</p>
+            <p className="text-[12px] mt-1 opacity-80">{check.reject.reason}</p>
+          </div>
+        </div>
+
+        <SectionCard title="수정 안내">
+          <p className="text-[12px] text-foreground leading-relaxed">{check.reject.guidance}</p>
+        </SectionCard>
+
+        <button
+          onClick={onEditField}
+          className="w-full h-10 rounded bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors"
+        >
+          수정하기
+        </button>
+        <p className="text-[11px] text-muted-foreground text-center">
+          이 조합으로는 심의 대기열로 접수되지 않습니다. 안내에 따라 값을 바꾸면 다시 등록할 수 있습니다.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {/* 검사 진행 표시 */}
@@ -1004,6 +1044,25 @@ function Step5({
 function DiagSummaryPanel({ diag, form }: { diag: DiagState; form: FormData }) {
   const check = runPreCheck(form, diag);
   const cfg = RESULT_CONFIG[check.result];
+
+  // 자격 축 게이트에 걸리면 위험도 미리보기 대신 반려 사유·안내를 바로
+  // 보여준다 — 값을 바꾸는 즉시(예: 개인키 → OAuth) 이 패널도 실시간으로
+  // 정상 경로 미리보기로 돌아간다(양방향).
+  if (check.reject) {
+    return (
+      <div className="bg-card border border-red-200 rounded-md overflow-hidden">
+        <div className="px-4 py-3 border-b border-red-200 bg-red-50">
+          <p className="text-[11px] font-semibold text-red-700 flex items-center gap-1.5">
+            <XCircle size={12} /> 자동 반려
+          </p>
+        </div>
+        <div className="px-4 py-3 flex flex-col gap-2">
+          <p className="text-[11px] text-foreground">{check.reject.reason}</p>
+          <p className="text-[11px] text-muted-foreground">{check.reject.guidance}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-card border border-border rounded-md overflow-hidden">
