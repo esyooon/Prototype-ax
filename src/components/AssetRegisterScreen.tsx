@@ -215,6 +215,37 @@ const DEMO_FORM: Partial<FormData> = {
 
 const DEMO_DIAG: DiagState = { q1: "no", q2: "yes", q3: "yes", q4: "yes", q5: "no", q6: "yes" };
 
+// ─── 시나리오B: 간편 심의 데모 (맞춤형 AI — 사내 규정 검색 어시스턴트) ─────────
+// 읽기 전용 자산: 사내 문서를 읽기만 하고(q3=예) 발송·수정·자동 실행이 없어
+// 기존 정책 로직(calculateReviewPath + calculateTypeFieldRisk)에서 그대로
+// OPERATION_REVIEW(간편 심의)가 나오도록 값을 맞춘 데이터다. 비용 검토 태그가
+// 붙지 않도록 유료 AI 툴 선택지·hasCost=yes는 쓰지 않는다.
+const ASSISTANT_DEMO_FORM: Partial<FormData> = {
+  assetType: "ASSISTANT",
+  name: "사내 규정 검색 어시스턴트",
+  description: "재택근무·휴가 등 사내 규정을 질문하면 연결된 규정 문서에서 관련 내용을 찾아 답합니다.",
+  useCases: '입력: "재택근무 신청 방법은?"\n출력: 관련 규정 조항과 요약 답변',
+  limitations: "규정 개정 직후에는 최신 내용이 반영되지 않을 수 있어요. 중요한 결정 전에는 원문 문서를 확인하세요.",
+  visibility: "전 임직원",
+  typeFields: {
+    accessLink: "https://gemini.google.com/gem/hr-policy-search",
+    platform: "OTHER",
+    hasConnectedSource: "YES",
+    instructions: "연결된 사내 규정 문서에서만 근거를 찾아 답변합니다. 문서를 고치거나 외부로 보내지 않는 읽기 전용 어시스턴트입니다.",
+  },
+  usageSelections: ["Google Docs·Sheets·Forms", "브라우저"],
+  hasCost: "no",
+};
+
+const ASSISTANT_DEMO_DIAG: DiagState = {
+  q1: "no",   // 개인정보나 중요 회사 정보
+  q2: "no",   // 회사 밖 AI·서비스 전송
+  q3: "yes",  // 사내 시스템·문서 읽기
+  q4: "no",   // 메일 발송·문서 수정·삭제
+  q5: "no",   // 사람 확인 없는 자동 실행
+  q6: "no",   // 예약·반복 실행
+};
+
 // ─── Pre-check logic ─────────────────────────────────────────────────────────
 // 실제 계산은 등록·운영자 화면이 공유하는 calculateReviewPath(공용 함수)가
 // 담당한다. 여기서는 마법사 단계에서 쓰는 로컬 폼 상태를 그 함수의 입력
@@ -292,21 +323,31 @@ const textareaCls = "w-full px-3 py-2 rounded border border-border bg-background
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+const INITIAL_FORM: FormData = {
+  assetType: null, name: "", description: "", useCases: "", limitations: "",
+  visibility: "전 임직원", trigger: "", processingSteps: "",
+  operations: [], genericContent: "", typeFields: {}, usageSelections: [], hasCost: null,
+  originContent: "", originFileName: "", originLink: "", aiDraftApplied: false,
+};
+
 export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu: string) => void }) {
   const { dispatch } = useAssets();
   const [step, setStep] = useState(1);
-  const [form, setForm] = useState<FormData>({
-    assetType: null, name: "", description: "", useCases: "", limitations: "",
-    visibility: "전 임직원", trigger: "", processingSteps: "",
-    operations: [], genericContent: "", typeFields: {}, usageSelections: [], hasCost: null,
-    originContent: "", originFileName: "", originLink: "", aiDraftApplied: false,
-  });
+  const [form, setForm] = useState<FormData>(INITIAL_FORM);
   const [diag, setDiag] = useState<DiagState>({ q1: null, q2: null, q3: null, q4: null, q5: null, q6: null });
   const [submitted, setSubmitted] = useState(false);
   const [tooltipKey, setTooltipKey] = useState<string | null>(null);
 
   function patchForm(patch: Partial<FormData>) { setForm(prev => ({ ...prev, ...patch })); }
   function fillDemo() { patchForm(DEMO_FORM as FormData); setDiag(DEMO_DIAG); }
+  // 간편 심의 데모는 patchForm이 아니라 초기값 위에 덮어쓴다 — 직전에 자동화
+  // 데모를 불렀더라도 레거시 필드(trigger 등)나 다른 유형 값이 남지 않게.
+  function fillAssistantDemo() {
+    setForm({ ...INITIAL_FORM, ...ASSISTANT_DEMO_FORM });
+    setDiag(ASSISTANT_DEMO_DIAG);
+    setSubmitted(false);
+    toast.success("간편 심의 예시를 불러왔습니다.", { description: "내용을 확인한 뒤 사전검사까지 진행해 주세요.", duration: 3000 });
+  }
 
   function canAdvance(): boolean {
     if (step === 1) return form.assetType !== null;
@@ -355,7 +396,7 @@ export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu
       <div className="mt-6 flex gap-6 items-start max-w-[900px] mx-auto">
         <div className="flex-1 min-w-0 flex flex-col gap-4">
           {step === 1 && <Step1 form={form} patchForm={patchForm} />}
-          {step === 2 && <Step2 form={form} patchForm={patchForm} fillDemo={fillDemo} />}
+          {step === 2 && <Step2 form={form} patchForm={patchForm} fillDemo={fillDemo} fillAssistantDemo={fillAssistantDemo} />}
           {step === 3 && <Step3 form={form} patchForm={patchForm} />}
           {step === 4 && <Step4 diag={diag} setDiag={setDiag} tooltipKey={tooltipKey} setTooltipKey={setTooltipKey} originContent={form.originContent} />}
           {step === 5 && check && <Step5 check={check} form={form} onSubmit={handleSubmit} onEditField={() => setStep(3)} />}
@@ -461,9 +502,9 @@ function Step1({ form, patchForm }: { form: FormData; patchForm: (p: Partial<For
           </button>
         ))}
       </div>
-      {form.assetType && form.assetType !== "AUTOMATION" && (
+      {form.assetType && form.assetType !== "AUTOMATION" && form.assetType !== "ASSISTANT" && (
         <p className="mt-4 text-[12px] text-muted-foreground bg-muted/40 rounded px-3 py-2">
-          이번 데모에서는 <strong>자동화</strong> 유형만 끝까지 완성된 데이터로 진행됩니다. 다른 유형은 양식 구조만 제공됩니다.
+          발표용 데모 데이터는 <strong>맞춤형 AI</strong>와 <strong>자동화</strong> 유형에서 제공됩니다. 다른 유형은 양식 구조를 확인할 수 있습니다.
         </p>
       )}
     </SectionCard>
@@ -557,7 +598,14 @@ function OriginZone({ form, patchForm }: { form: FormData; patchForm: (p: Partia
 
 // ─── Step 2: 기본 정보 ────────────────────────────────────────────────────────
 
-function Step2({ form, patchForm, fillDemo }: { form: FormData; patchForm: (p: Partial<FormData>) => void; fillDemo: () => void }) {
+function Step2({ form, patchForm, fillDemo, fillAssistantDemo }: { form: FormData; patchForm: (p: Partial<FormData>) => void; fillDemo: () => void; fillAssistantDemo: () => void }) {
+  // 데모 불러오기는 발표 시나리오가 준비된 유형에만 노출한다 —
+  // AUTOMATION=정밀 심의 예시(기존 asset-005), ASSISTANT=간편 심의 예시.
+  const demoButton =
+    form.assetType === "AUTOMATION" ? { label: "정밀 심의 예시 불러오기", sub: "주간 업무보고 자동 취합", onClick: fillDemo }
+    : form.assetType === "ASSISTANT" ? { label: "간편 심의 예시 불러오기", sub: "사내 규정 검색 어시스턴트", onClick: fillAssistantDemo }
+    : null;
+
   return (
     <>
       <OriginZone form={form} patchForm={patchForm} />
@@ -565,12 +613,15 @@ function Step2({ form, patchForm, fillDemo }: { form: FormData; patchForm: (p: P
       <SectionCard>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-[13px] font-semibold text-foreground">기본 정보</h3>
-          <button
-            onClick={fillDemo}
-            className="flex items-center gap-1.5 h-7 px-3 rounded border border-primary/40 text-primary text-[11px] font-medium hover:bg-primary/5 transition-colors"
-          >
-            데모 정보 불러오기 (asset-005)
-          </button>
+          {demoButton && (
+            <button
+              onClick={demoButton.onClick}
+              className="flex items-center gap-1.5 h-7 px-3 rounded border border-primary/40 text-primary text-[11px] font-medium hover:bg-primary/5 transition-colors"
+            >
+              {demoButton.label}
+              <span className="text-[10px] font-normal opacity-70">{demoButton.sub}</span>
+            </button>
+          )}
         </div>
         <div className="flex flex-col gap-4">
           <Field label="자산 이름" required>
