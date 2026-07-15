@@ -30,6 +30,7 @@ import MyAssetsScreen from "../components/MyAssetsScreen";
 import GovernanceScreen from "../components/GovernanceScreen";
 import PolicyManagementScreen from "../components/PolicyManagementScreen";
 import ReReviewScreen from "../components/ReReviewScreen";
+import CostLicenseScreen from "../components/CostLicenseScreen";
 import {
   getCatalogAssets,
   getReviewPendingAssets,
@@ -403,6 +404,8 @@ function AppShell() {
             <PolicyManagementScreen />
           ) : activeMenu === "re-review" ? (
             <ReReviewScreen />
+          ) : activeMenu === "cost-license" ? (
+            <CostLicenseScreen />
           ) : (
             <PlaceholderScreen pageTitle={pageTitle} sectionLabel={sectionLabel} />
           )}
