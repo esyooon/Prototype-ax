@@ -4,6 +4,8 @@ import { ChevronRight, Info, Paperclip, Image as ImageIcon, CheckCircle2, AlertT
 import { useAssets } from "../context/AssetContext";
 import type { AssetType, ReviewPath, SelfDiagnosisAnswers } from "../data/types";
 import { calculateReviewPath } from "../data/reviewPolicy";
+import { ASSET_TYPE_FIELD_SCHEMAS, type AssetTypeField } from "../data/assetTypeSchemas";
+import { ASSET_TYPE_LABELS } from "../data/types";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -17,12 +19,14 @@ interface FormData {
   useCases: string;
   limitations: string;
   visibility: string;
-  // step 3 automation fields
+  // step 3 automation fields (레거시 — OriginZone의 AI 초안 채우기가 아직 씀)
   trigger: string;
   processingSteps: string;
   operations: string[];
   // step 3 other type fields (generic)
   genericContent: string;
+  // step 3 유형별 필드 (B1 스키마 렌더러가 채움) — key는 AssetTypeField.key
+  typeFields: Record<string, unknown>;
   // step 3 통합: "이 자산이 무엇을 사용하나요?" (구 연결 서비스 + 실행 환경)
   usageSelections: string[];
   hasCost: DiagAnswer;
@@ -170,6 +174,20 @@ function getScanHints(key: keyof DiagState, originContent: string): string[] {
   return hints;
 }
 
+// ─── 유형별 필드(B1 스키마) 완성 여부 ─────────────────────────────────────────
+// 스키마의 required 필드가 전부 채워졌는지만 본다 — 위험 신호 판정(B3)과는 별개.
+function isTypeFieldsComplete(assetType: AssetType, typeFields: Record<string, unknown>): boolean {
+  const schema = ASSET_TYPE_FIELD_SCHEMAS[assetType];
+  return schema.fields
+    .filter((f) => f.required)
+    .every((f) => {
+      const v = typeFields[f.key];
+      if (f.inputType === "checkbox") return typeof v === "boolean";
+      if (Array.isArray(v)) return v.length > 0;
+      return typeof v === "string" ? v.trim().length > 0 : v != null;
+    });
+}
+
 const DEMO_FORM: Partial<FormData> = {
   assetType: "AUTOMATION",
   name: "주간 업무보고 자동 취합",
@@ -180,6 +198,15 @@ const DEMO_FORM: Partial<FormData> = {
   trigger: "매주 금요일 오후 5시 (예약 실행)",
   processingSteps: "1. 폼 응답 수집\n2. 주간 업무 분류\n3. 통합 문서 초안 생성\n4. 사용자 확인\n5. 문서 반영",
   operations: ["읽기", "문서 생성·수정"],
+  typeFields: {
+    touchedServices: ["GOOGLE_WORKSPACE"],
+    doesSend: false,
+    doesModify: true,
+    doesDelete: false,
+    executionMode: "SCHEDULED",
+    filePayload: "weekly_report.gs",
+    installGuide: "Google Apps Script 프로젝트에 코드를 붙여넣고 매주 금요일 오후 5시 트리거를 설정하세요.",
+  },
   usageSelections: ["Gemini Enterprise", "Google Docs·Sheets·Forms"],
   hasCost: "yes",
 };
@@ -250,7 +277,7 @@ export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu
   const [form, setForm] = useState<FormData>({
     assetType: null, name: "", description: "", useCases: "", limitations: "",
     visibility: "전 임직원", trigger: "", processingSteps: "",
-    operations: [], genericContent: "", usageSelections: [], hasCost: null,
+    operations: [], genericContent: "", typeFields: {}, usageSelections: [], hasCost: null,
     originContent: "", originFileName: "", originLink: "", aiDraftApplied: false,
   });
   const [diag, setDiag] = useState<DiagState>({ q1: null, q2: null, q3: null, q4: null, q5: null, q6: null });
@@ -265,8 +292,8 @@ export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu
     if (step === 2) return form.name.trim().length > 0 && form.description.trim().length > 0;
     if (step === 3) {
       const usageOk = form.usageSelections.length > 0 && form.hasCost !== null;
-      if (form.assetType === "AUTOMATION") return form.trigger.trim().length > 0 && usageOk;
-      return usageOk;
+      const typeFieldsOk = form.assetType ? isTypeFieldsComplete(form.assetType, form.typeFields) : true;
+      return usageOk && typeFieldsOk;
     }
     if (step === 4) return Object.values(diag).every(v => v !== null);
     return true;
@@ -544,13 +571,6 @@ function Step2({ form, patchForm, fillDemo }: { form: FormData; patchForm: (p: P
 // ─── Step 3: 심의 기준본 ──────────────────────────────────────────────────────
 
 function Step3({ form, patchForm }: { form: FormData; patchForm: (p: Partial<FormData>) => void }) {
-  const toggleOp = (op: string) => {
-    const ops = form.operations.includes(op)
-      ? form.operations.filter(o => o !== op)
-      : [...form.operations, op];
-    patchForm({ operations: ops });
-  };
-
   return (
     <>
       <div className="bg-muted/40 border border-border rounded-md px-4 py-3 text-[12px] text-muted-foreground">
@@ -558,106 +578,167 @@ function Step3({ form, patchForm }: { form: FormData; patchForm: (p: Partial<For
         <span className="ml-2 inline-flex items-center gap-1 text-amber-600 font-medium"><AlertTriangle size={11} /> API 키·비밀번호 입력 금지</span>
       </div>
 
-      {form.assetType === "AUTOMATION" && (
-        <SectionCard title="자동화 기준본">
-          <div className="flex flex-col gap-4">
-            <Field label="실행 트리거" required>
-              <input className={inputCls} value={form.trigger} onChange={e => patchForm({ trigger: e.target.value })} placeholder="예: 매주 금요일 오후 5시(예약 실행) / 사용자가 버튼을 눌렀을 때(수동 실행) / 특정 문서가 업로드됐을 때(조건부 실행)" />
-            </Field>
-            <Field label="처리 단계" hint="각 단계를 순서대로 입력하세요." badge={form.aiDraftApplied ? <AiDraftBadge /> : null}>
-              <textarea className={`${textareaCls} ${form.aiDraftApplied ? "bg-primary/5" : ""}`} rows={5} value={form.processingSteps} onChange={e => patchForm({ processingSteps: e.target.value })} placeholder={"1. 폼 응답 수집\n2. 주간 업무 분류\n3. 통합 문서 초안 생성\n4. 사용자 확인\n5. 문서 반영"} />
-            </Field>
-            <Field label="읽기·생성·수정 동작">
-              <div className="flex flex-wrap gap-2">
-                {["읽기", "문서 생성·수정", "메일 발송", "일정 등록", "삭제"].map(op => (
-                  <button key={op} onClick={() => toggleOp(op)}
-                    className={`h-7 px-3 rounded-full text-[11px] border font-medium transition-colors ${
-                      form.operations.includes(op)
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-card text-foreground border-border hover:bg-muted"
-                    }`}>{op}</button>
-                ))}
-              </div>
-            </Field>
-            <Field label="코드 또는 워크플로 첨부">
-              <DemoFileCard name="weekly_report.gs" size="12 KB" type="Google Apps Script" />
-            </Field>
-          </div>
-        </SectionCard>
-      )}
-
-      {form.assetType === "PROMPT" && (
-        <SectionCard title="프롬프트 기준본">
-          <div className="flex flex-col gap-4">
-            <Field label="전체 원문" required>
-              <textarea className={textareaCls} rows={6} placeholder="프롬프트 전체 내용을 입력하세요." />
-            </Field>
-            <Field label="입력 변수" hint="변수명과 설명을 입력하세요.">
-              <textarea className={textareaCls} rows={3} placeholder="예: {{고객_문의}}: 고객이 보낸 문의 내용" />
-            </Field>
-            <Field label="출력 예시">
-              <textarea className={textareaCls} rows={3} placeholder="예상 출력 예시를 입력하세요." />
-            </Field>
-          </div>
-        </SectionCard>
-      )}
-
-      {form.assetType === "ASSISTANT" && (
-        <SectionCard title="맞춤형 AI 기준본">
-          <div className="flex flex-col gap-4">
-            <Field label="시스템 지시문" required>
-              <textarea className={textareaCls} rows={5} placeholder="AI에게 전달할 시스템 지시문을 입력하세요." />
-            </Field>
-            <Field label="연결 문서" hint="쉼표로 구분해 입력하세요.">
-              <input className={inputCls} placeholder="예: 취업규칙, 복리후생 가이드" />
-            </Field>
-            <Field label="실행 링크">
-              <input className={inputCls} placeholder="https://" />
-            </Field>
-          </div>
-        </SectionCard>
-      )}
-
-      {form.assetType === "APP" && (
-        <SectionCard title="앱 기준본">
-          <div className="flex flex-col gap-4">
-            <Field label="앱 유형" required>
-              <div className="flex gap-3">
-                {["브라우저 실행형", "백엔드 연동형"].map(t => (
-                  <button key={t} className="h-8 px-4 rounded border border-border text-[12px] hover:bg-muted transition-colors">{t}</button>
-                ))}
-              </div>
-            </Field>
-            <Field label="실행 링크"><input className={inputCls} placeholder="https://" /></Field>
-            <Field label="데이터 저장 여부"><input className={inputCls} placeholder="예: 사용자 입력 데이터를 DB에 저장" /></Field>
-            <Field label="외부 통신"><input className={inputCls} placeholder="예: 외부 API 호출 여부와 대상" /></Field>
-          </div>
-        </SectionCard>
-      )}
-
-      {form.assetType === "MCP" && (
-        <SectionCard title="MCP 기준본">
-          <div className="flex flex-col gap-4">
-            <Field label="연결 시스템" required><input className={inputCls} placeholder="예: Jira, GitHub, 사내 DB" /></Field>
-            <Field label="제공 기능"><textarea className={textareaCls} rows={3} placeholder="예: 이슈 조회, PR 상태 확인" /></Field>
-            <Field label="기능별 권한"><textarea className={textareaCls} rows={2} placeholder="예: 읽기 전용, 쓰기 포함" /></Field>
-            <Field label="인증 방식"><input className={inputCls} placeholder="예: OAuth 2.0, API 토큰" /></Field>
-          </div>
-        </SectionCard>
-      )}
-
-      {form.assetType === "OTHER" && (
-        <SectionCard title="기타 자산 기준본">
-          <div className="flex flex-col gap-4">
-            <Field label="실제 구성" required><textarea className={textareaCls} rows={4} placeholder="자산의 구성과 동작 방식을 설명하세요." /></Field>
-            <Field label="사용 방법"><textarea className={textareaCls} rows={3} placeholder="이 자산을 사용하는 방법을 설명하세요." /></Field>
-            <Field label="기존 유형에 포함되지 않는 이유"><textarea className={textareaCls} rows={2} placeholder="왜 기존 유형에 해당하지 않는지 설명해 주세요." /></Field>
-          </div>
-        </SectionCard>
-      )}
+      {form.assetType && <TypeFieldsSection assetType={form.assetType} form={form} patchForm={patchForm} />}
 
       <UsageSection form={form} patchForm={patchForm} />
     </>
+  );
+}
+
+// ─── 유형별 필드 렌더러 (B1 스키마 소비) ───────────────────────────────────────
+// assetType이 바뀌면 ASSET_TYPE_FIELD_SCHEMAS에서 다른 필드 목록을 읽어오므로
+// 자동으로 다른 필드 세트가 그려진다 — 유형별 분기 JSX는 더 이상 여기 없다.
+
+function TypeFieldsSection({
+  assetType, form, patchForm,
+}: {
+  assetType: AssetType;
+  form: FormData;
+  patchForm: (p: Partial<FormData>) => void;
+}) {
+  const schema = ASSET_TYPE_FIELD_SCHEMAS[assetType];
+
+  function updateTypeField(key: string, value: unknown) {
+    patchForm({ typeFields: { ...form.typeFields, [key]: value } });
+  }
+
+  const title = schema.subtypeLabel
+    ? `${schema.subtypeLabel} 기준본`
+    : `${ASSET_TYPE_LABELS[assetType]} 기준본`;
+
+  return (
+    <SectionCard title={title}>
+      <div className="flex flex-col gap-4">
+        {schema.fields.map((field) => (
+          <SchemaField
+            key={field.key}
+            field={field}
+            value={form.typeFields[field.key]}
+            onChange={(v) => updateTypeField(field.key, v)}
+          />
+        ))}
+      </div>
+    </SectionCard>
+  );
+}
+
+function SchemaField({
+  field, value, onChange,
+}: {
+  field: AssetTypeField;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  if (field.inputType === "checkbox") {
+    return (
+      <label className="flex items-center gap-2 text-[12px] text-foreground cursor-pointer w-fit">
+        <input
+          type="checkbox"
+          checked={value === true}
+          onChange={(e) => onChange(e.target.checked)}
+          className="w-4 h-4 rounded border-border accent-primary"
+        />
+        {field.label}{field.required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
+    );
+  }
+
+  return (
+    <Field label={field.label} required={field.required}>
+      {field.inputType === "text" && (
+        <input
+          className={inputCls}
+          value={(value as string) ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={field.placeholder}
+        />
+      )}
+      {field.inputType === "url" && (
+        <input
+          type="url"
+          className={inputCls}
+          value={(value as string) ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={field.placeholder ?? "https://"}
+        />
+      )}
+      {field.inputType === "textarea" && (
+        <textarea
+          className={textareaCls}
+          rows={4}
+          value={(value as string) ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={field.placeholder}
+        />
+      )}
+      {field.inputType === "select" && (
+        <select
+          className={inputCls}
+          value={(value as string) ?? ""}
+          onChange={(e) => onChange(e.target.value || null)}
+        >
+          <option value="">선택하세요</option>
+          {field.options?.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      )}
+      {field.inputType === "radio" && (
+        <div className="flex gap-2">
+          {field.options?.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange(opt.value)}
+              className={`h-8 px-4 rounded-full text-[12px] border font-medium transition-colors ${
+                value === opt.value
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-card text-foreground border-border hover:bg-muted"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {field.inputType === "multiselect" && (
+        <div className="flex flex-wrap gap-2">
+          {field.options?.map((opt) => {
+            const selected = Array.isArray(value) && (value as string[]).includes(opt.value);
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => {
+                  const current = Array.isArray(value) ? (value as string[]) : [];
+                  onChange(selected ? current.filter((v) => v !== opt.value) : [...current, opt.value]);
+                }}
+                className={`h-7 px-3 rounded-full text-[11px] border font-medium transition-colors ${
+                  selected
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card text-foreground border-border hover:bg-muted"
+                }`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {field.inputType === "file" && (
+        value ? (
+          <DemoFileCard name={value as string} size="—" type="첨부 파일" />
+        ) : (
+          <button
+            type="button"
+            onClick={() => onChange(`${field.key}_demo_file`)}
+            className="flex items-center gap-1.5 h-8 px-4 rounded border border-dashed border-border text-[12px] text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors w-fit"
+          >
+            <Paperclip size={12} /> 파일 선택 (데모)
+          </button>
+        )
+      )}
+    </Field>
   );
 }
 
