@@ -397,7 +397,7 @@ function AppShell() {
           ) : activeMenu === "asset-register" ? (
             <AssetRegisterScreen onNavigate={handleMenuChange} />
           ) : activeMenu === "my-assets" ? (
-            <MyAssetsScreen onOpenDetail={handleOpenDetailFromMyAssets} />
+            <MyAssetsScreen role={role} onOpenDetail={handleOpenDetailFromMyAssets} onNavigate={handleMenuChange} />
           ) : activeMenu === "review-pending" ? (
             <GovernanceScreen />
           ) : activeMenu === "policy-mgmt" ? (

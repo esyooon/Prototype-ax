@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft, CheckCircle2, AlertTriangle,
   RotateCcw, Star, MessageSquareWarning, Users, Building2,
-  Activity, TrendingUp, PlusCircle, StopCircle, Bot,
+  Activity, TrendingUp, PlusCircle, StopCircle, Bot, Package,
 } from "lucide-react";
 import { useAssets } from "../context/AssetContext";
 import { ASSET_STATUS_LABELS, ASSET_STATUS_CHIP } from "../data/types";
@@ -180,12 +180,61 @@ function MetricRow({ label, value, sub }: { label: string; value: string; sub?: 
   );
 }
 
+// ─── 일반 사용자 empty state ──────────────────────────────────────────────────
+// 일반 사용자는 등록이 아니라 사용만 하는 역할이므로, 등록한 자산이 없는 게
+// 정상 상태다.
+
+function MyAssetsEmptyState({ onNavigate }: { onNavigate?: (menu: string) => void }) {
+  return (
+    <div className="px-10 py-8">
+      <div className="mb-6">
+        <h1 className="text-[22px] font-semibold text-foreground tracking-tight">내 자산</h1>
+        <p className="text-[13px] text-muted-foreground mt-1">
+          내가 등록한 AI 자산의 상태와 활용 현황을 관리합니다.
+        </p>
+      </div>
+
+      <div className="bg-card border border-border rounded-md">
+        <div className="flex flex-col items-center justify-center py-24 gap-3 px-6 text-center">
+          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+            <Package size={20} className="text-muted-foreground" />
+          </div>
+          <p className="text-[14px] font-medium text-foreground">아직 등록한 자산이 없어요</p>
+          <p className="text-[13px] text-muted-foreground">
+            AI Playground에서 자산을 사용해보거나, 직접 등록해보세요
+          </p>
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate("asset-register")}
+              className="mt-2 flex items-center gap-1.5 h-9 px-4 rounded bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 transition-colors"
+            >
+              <PlusCircle size={14} /> 자산 등록하러 가기
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-export default function MyAssetsScreen({ onOpenDetail }: { onOpenDetail?: (id: string) => void }) {
+export default function MyAssetsScreen({
+  role, onOpenDetail, onNavigate,
+}: {
+  role: "user" | "registrant" | "operator";
+  onOpenDetail?: (id: string) => void;
+  onNavigate?: (menu: string) => void;
+}) {
   const { assets, revisionNotes, approvalConditions, checkingInfo, tickets, dispatch } = useAssets();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [correctionApplied, setCorrectionApplied] = useState(false);
+
+  // 일반 사용자는 자산을 등록하지 않고 사용만 하는 역할이라, 등록한 자산이
+  // 없는 게 정상이다 — 등록자/운영자 화면은 그대로 두고 이 역할만 분기한다.
+  if (role === "user") {
+    return <MyAssetsEmptyState onNavigate={onNavigate} />;
+  }
 
   const myAssets = assets.filter(a => a.registrantUserId === DEMO_REGISTRANT_ID);
   const publishedAssets = myAssets.filter(a => a.status === "PUBLISHED" || a.status === "CONDITIONAL_APPROVAL");
