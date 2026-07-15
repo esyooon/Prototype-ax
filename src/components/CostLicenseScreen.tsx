@@ -21,6 +21,16 @@ function formatWonShort(n: number): string {
   return `₩${Math.round(n / 10_000).toLocaleString("ko-KR")}만`;
 }
 
+function formatSignedWon(n: number): string {
+  if (n === 0) return "±0";
+  return `${n > 0 ? "+" : "-"}${formatWon(Math.abs(n))}`;
+}
+
+function formatSignedWonShort(n: number): string {
+  if (n === 0) return "±0";
+  return `${n > 0 ? "+" : "-"}${formatWonShort(Math.abs(n))}`;
+}
+
 // ─── 블록 1: KPI 카드 ─────────────────────────────────────────────────────────
 
 const KPI_CARDS: { label: string; value: string; emphasize?: boolean; tone?: "primary" | "warn" }[] = [
@@ -293,6 +303,107 @@ function WasteSummary() {
   );
 }
 
+// ─── 블록 5: 전자결재 vs 실결제 대조 ──────────────────────────────────────────
+// 전자결재로 신청·승인된 "예상금액"과 실제로 빠져나간 "실결제금액"을 대조해
+// 갭(차액)을 잡아내는 정산 검증 뷰.
+
+interface ReconciliationRow {
+  type: string;
+  period: string;
+  plan: string;
+  expected: number;
+  actual: number;
+  status: "확정" | "정산 대기";
+}
+
+const RECONCILIATION: ReconciliationRow[] = [
+  { type: "정기결재",       period: "2026.01.15", plan: "Gemini Enterprise 갱신",   expected: 22_000_000, actual: 23_120_000, status: "정산 대기" },
+  { type: "전자결재 추가",  period: "2026.01.19", plan: "Claude Premium",           expected: 3_200_000,  actual: 3_450_000,  status: "확정" },
+  { type: "전자결재 추가",  period: "2026.03.05", plan: "GitHub Copilot 추가석",    expected: 1_800_000,  actual: 1_800_000,  status: "확정" },
+  { type: "정기결재",       period: "2026.04.01", plan: "SharePoint Plan 1 갱신",   expected: 4_200_000,  actual: 3_780_000,  status: "확정" },
+  { type: "전자결재 추가",  period: "2026.05.12", plan: "Claude Premium 추가 좌석", expected: 900_000,    actual: 760_000,    status: "정산 대기" },
+];
+
+const reconciliationData = RECONCILIATION.map((r) => ({
+  ...r,
+  gap: r.actual - r.expected,
+  gapLabel: formatSignedWonShort(r.actual - r.expected),
+}));
+
+const STATUS_BADGE: Record<ReconciliationRow["status"], string> = {
+  확정:      "bg-green-50 text-green-700 border-green-200",
+  "정산 대기": "bg-orange-50 text-orange-600 border-orange-200",
+};
+
+function ReconciliationChart() {
+  return (
+    <div>
+      <div className="flex items-center gap-4 mb-3">
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: "#D1D5DB" }} />
+          예상금액
+        </div>
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: "#1764E8" }} />
+          실결제금액
+        </div>
+      </div>
+      <div className="h-[260px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={reconciliationData} margin={{ top: 24, right: 16, left: 0, bottom: 4 }} barGap={4}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+            <XAxis dataKey="plan" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={{ stroke: "var(--border)" }} tickLine={false} />
+            <YAxis tickFormatter={(v) => formatWonShort(v)} tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} width={48} />
+            <Tooltip
+              formatter={(value: number, key: string) => [formatWon(value), key === "expected" ? "예상금액" : "실결제금액"]}
+              contentStyle={{ fontSize: 12, borderRadius: 6, borderColor: "var(--border)" }}
+            />
+            <Bar dataKey="expected" fill="#D1D5DB" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="actual" fill="#1764E8" radius={[3, 3, 0, 0]}>
+              <LabelList dataKey="gapLabel" position="top" style={{ fontSize: 11, fontWeight: 600, fill: "var(--foreground)" }} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function ReconciliationTable() {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr className="border-b border-border bg-muted/30">
+            {["결재 유형", "기간", "플랜", "예상금액", "실결제금액", "차액", "상태"].map((h) => (
+              <th key={h} className="text-left px-3 py-2.5 text-muted-foreground font-medium whitespace-nowrap">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {reconciliationData.map((r, i) => (
+            <tr key={i} className="border-b border-border last:border-0">
+              <td className="px-3 py-2.5 text-foreground whitespace-nowrap">{r.type}</td>
+              <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap" style={{ fontFamily: "'DM Mono', monospace" }}>{r.period}</td>
+              <td className="px-3 py-2.5 text-foreground whitespace-nowrap">{r.plan}</td>
+              <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">{formatWon(r.expected)}</td>
+              <td className="px-3 py-2.5 text-foreground font-medium whitespace-nowrap">{formatWon(r.actual)}</td>
+              <td className={`px-3 py-2.5 font-semibold whitespace-nowrap ${r.gap > 0 ? "text-red-600" : r.gap < 0 ? "text-blue-600" : "text-muted-foreground"}`}>
+                {formatSignedWon(r.gap)}
+              </td>
+              <td className="px-3 py-2.5">
+                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border ${STATUS_BADGE[r.status]}`}>
+                  {r.status}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ─── SectionCard ──────────────────────────────────────────────────────────────
 
 function SectionCard({ title, children }: { title?: string; children: React.ReactNode }) {
@@ -345,6 +456,16 @@ export default function CostLicenseScreen() {
             <div className="col-span-1">
               <WasteSummary />
             </div>
+          </div>
+        </SectionCard>
+      </div>
+
+      {/* 블록 5: 전자결재 vs 실결제 대조 (풀폭) */}
+      <div className="mt-4">
+        <SectionCard title="전자결재 vs 실결제 대조">
+          <div className="flex flex-col gap-5">
+            <ReconciliationChart />
+            <ReconciliationTable />
           </div>
         </SectionCard>
       </div>
