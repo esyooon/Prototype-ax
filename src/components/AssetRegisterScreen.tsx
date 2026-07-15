@@ -813,7 +813,7 @@ function Step4({
 
 const RESULT_CONFIG: Record<ReviewResult, { label: string; color: string; icon: React.ReactNode; desc: string }> = {
   AUTO_REGISTER:    { label: "자동 등록",  color: "text-green-700 bg-green-50 border-green-200",    icon: <CheckCircle2 size={18} />, desc: "별도 심의 없이 즉시 등록됩니다." },
-  OPERATION_REVIEW: { label: "운영 심의",  color: "text-blue-700 bg-blue-50 border-blue-200",        icon: <Info size={18} />,          desc: "운영팀이 검토 후 등록 여부를 결정합니다." },
+  OPERATION_REVIEW: { label: "간편 심의",  color: "text-blue-700 bg-blue-50 border-blue-200",        icon: <Info size={18} />,          desc: "운영팀이 검토 후 등록 여부를 결정합니다." },
   DEEP_REVIEW:      { label: "정밀 심의",  color: "text-orange-700 bg-orange-50 border-orange-200",  icon: <AlertTriangle size={18} />, desc: "보안·거버넌스팀의 심층 심의가 진행됩니다." },
   AUTO_REJECT:      { label: "자동 반려",  color: "text-red-700 bg-red-50 border-red-200",            icon: <XCircle size={18} />,       desc: "현재 정책에 따라 등록이 불가합니다." },
 };

@@ -13,7 +13,7 @@ type Filter = "all" | "operation" | "deep" | "cost" | "resubmit";
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all",       label: "전체"        },
-  { id: "operation", label: "운영 심의"   },
+  { id: "operation", label: "간편 심의"   },
   { id: "deep",      label: "정밀 심의"   },
   { id: "cost",      label: "비용 검토"   },
   { id: "resubmit",  label: "보완 재제출" },

@@ -80,7 +80,7 @@ const POLICIES: Policy[] = [
     name: "사내 데이터 읽기 전용",
     target: "사내 시스템 연결 자산",
     condition: "쓰기 동작 없이 사내 시스템 또는 문서를 조회",
-    result: "운영 심의",
+    result: "간편 심의",
     resultColor: "text-blue-600 bg-blue-50 border-blue-200",
     policyVersion: "v2025.1",
     active: true,
@@ -143,7 +143,7 @@ export default function PolicyManagementScreen() {
     const op    = POLICIES[3].matches(asset).triggered;
     const cost  = POLICIES[4].matches(asset).triggered;
 
-    const path = deep ? "정밀 심의" : op ? "운영 심의" : "자동 등록";
+    const path = deep ? "정밀 심의" : op ? "간편 심의" : "자동 등록";
     return { path, cost, matchCount: POLICIES.filter(p => p.matches(asset).triggered).length };
   }
 
@@ -275,7 +275,7 @@ export default function PolicyManagementScreen() {
                 <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[12px] font-semibold self-start ${
                   combinedResult.path === "정밀 심의"
                     ? "bg-orange-50 text-orange-700 border border-orange-200"
-                    : combinedResult.path === "운영 심의"
+                    : combinedResult.path === "간편 심의"
                     ? "bg-blue-50 text-blue-700 border border-blue-200"
                     : "bg-green-50 text-green-700 border border-green-200"
                 }`}>

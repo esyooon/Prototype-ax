@@ -160,7 +160,7 @@ export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
 
 export const REVIEW_PATH_LABELS: Record<ReviewPath, string> = {
   AUTO_REGISTER: "자동 등록",
-  OPERATION_REVIEW: "운영 심의",
+  OPERATION_REVIEW: "간편 심의",
   DEEP_REVIEW: "정밀 심의",
   AUTO_REJECT: "자동 반려",
 };
