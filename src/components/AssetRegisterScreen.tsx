@@ -6,7 +6,7 @@ import type { AssetType, ReviewPath, SelfDiagnosisAnswers } from "../data/types"
 import { calculateReviewPath, calculateTypeFieldRisk } from "../data/reviewPolicy";
 import type { RejectInfo } from "../data/reviewPolicy";
 import { ASSET_TYPE_FIELD_SCHEMAS, type AssetTypeField } from "../data/assetTypeSchemas";
-import { ASSET_TYPE_LABELS, maxReviewPath } from "../data/types";
+import { ASSET_TYPE_LABELS, REVIEW_PATH_LABELS, maxReviewPath } from "../data/types";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -319,17 +319,26 @@ export default function AssetRegisterScreen({ onNavigate }: { onNavigate?: (menu
     return true;
   }
 
+  // 시나리오A: 경로별 분기 — 자동 반려(C)는 Step5에서 제출 버튼 자체가 없어
+  // 여기까지 오지 않는다. 남은 갈림길은 둘뿐이다 — 자동등록은 심의 대기열을
+  // 건너뛰고 즉시 게시, 간편/정밀은 그대로 심의 대기로 간다(기존 동작 유지).
   function handleSubmit() {
-    dispatch({ type: "UPDATE_STATUS", id: "asset-005", status: "REVIEW_PENDING" });
-    dispatch({ type: "SET_CATALOG_VISIBILITY", id: "asset-005", showOnCatalog: false });
+    if (check?.result === "AUTO_REGISTER") {
+      dispatch({ type: "PATCH_ASSET", id: "asset-005", patch: { status: "PUBLISHED", showOnCatalog: true } });
+      toast.success("등록이 완료되었습니다.", { description: "위험 신호가 없어 별도 심의 없이 바로 게시되었습니다.", duration: 4000 });
+    } else {
+      dispatch({ type: "UPDATE_STATUS", id: "asset-005", status: "REVIEW_PENDING" });
+      dispatch({ type: "SET_CATALOG_VISIBILITY", id: "asset-005", showOnCatalog: false });
+      const pathLabel = check ? REVIEW_PATH_LABELS[check.result] : "심의";
+      toast.success("등록 신청이 완료되었습니다.", { description: `${pathLabel} 대기 상태로 접수되었습니다.`, duration: 4000 });
+    }
     setSubmitted(true);
-    toast.success("등록 신청이 완료되었습니다.", { description: "정밀 심의 대기 상태로 접수되었습니다.", duration: 4000 });
   }
 
   const check = step === 5 ? runPreCheck(form, diag) : null;
 
   if (submitted) {
-    return <SubmittedState onNavigate={onNavigate} assetName={form.name || "자산"} />;
+    return <SubmittedState onNavigate={onNavigate} assetName={form.name || "자산"} check={check} />;
   }
 
   return (
@@ -1026,10 +1035,12 @@ function Step5({
         onClick={onSubmit}
         className="w-full h-10 rounded bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors"
       >
-        심의 신청하기
+        {check.result === "AUTO_REGISTER" ? "지금 등록하기" : "심의 신청하기"}
       </button>
       <p className="text-[11px] text-muted-foreground text-center">
-        제출하면 자산이 심의 대기 상태로 접수되고 카탈로그에는 노출되지 않습니다.
+        {check.result === "AUTO_REGISTER"
+          ? "위험 신호가 없어 별도 심의 없이 즉시 게시됩니다. 제출 즉시 카탈로그에 노출됩니다."
+          : "제출하면 자산이 심의 대기 상태로 접수되고 카탈로그에는 노출되지 않습니다."}
       </p>
     </div>
   );
@@ -1126,7 +1137,16 @@ function DemoFileCard({ name, size, type, icon }: { name: string; size: string; 
 
 // ─── Submitted state ──────────────────────────────────────────────────────────
 
-function SubmittedState({ onNavigate, assetName }: { onNavigate?: (menu: string) => void; assetName: string }) {
+function SubmittedState({
+  onNavigate, assetName, check,
+}: {
+  onNavigate?: (menu: string) => void;
+  assetName: string;
+  check: ReturnType<typeof runPreCheck> | null;
+}) {
+  const isAutoRegister = check?.result === "AUTO_REGISTER";
+  const pathLabel = check ? REVIEW_PATH_LABELS[check.result] : "심의";
+
   return (
     <div className="px-10 py-8">
       <div className="max-w-[560px] mx-auto mt-16 flex flex-col items-center text-center gap-5">
@@ -1134,23 +1154,42 @@ function SubmittedState({ onNavigate, assetName }: { onNavigate?: (menu: string)
           <CheckCircle2 size={28} className="text-green-600" />
         </div>
         <div>
-          <h2 className="text-[18px] font-semibold text-foreground">등록 신청이 완료되었습니다</h2>
+          <h2 className="text-[18px] font-semibold text-foreground">
+            {isAutoRegister ? "등록이 완료되었습니다" : "등록 신청이 완료되었습니다"}
+          </h2>
           <p className="text-[13px] text-muted-foreground mt-2">
-            <strong>{assetName}</strong>이(가) 정밀 심의 대기 상태로 접수되었습니다.
-            심의 완료 후 카탈로그에 공개됩니다.
+            {isAutoRegister ? (
+              <><strong>{assetName}</strong>이(가) 위험 신호 없이 바로 게시되었습니다. 지금 바로 Playground에서 확인할 수 있습니다.</>
+            ) : (
+              <><strong>{assetName}</strong>이(가) {pathLabel} 대기 상태로 접수되었습니다. 심의 완료 후 카탈로그에 공개됩니다.</>
+            )}
           </p>
         </div>
         <div className="flex flex-col gap-2 w-full">
-          <div className="flex items-center justify-center gap-2 p-3 bg-orange-50 border border-orange-200 rounded-md text-[12px] text-orange-700">
-            <AlertTriangle size={13} />
-            처리 경로: 정밀 심의 · 비용 검토 필요
+          <div className={`flex items-center justify-center gap-2 p-3 rounded-md text-[12px] ${
+            isAutoRegister
+              ? "bg-green-50 border border-green-200 text-green-700"
+              : "bg-orange-50 border border-orange-200 text-orange-700"
+          }`}>
+            {isAutoRegister ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}
+            처리 경로: {pathLabel}{!isAutoRegister && check?.costReview ? " · 비용 검토 필요" : ""}
           </div>
         </div>
         <div className="flex gap-3 mt-2">
+          {isAutoRegister && onNavigate && (
+            <button
+              onClick={() => onNavigate("ai-playground")}
+              className="h-9 px-5 rounded bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 transition-colors"
+            >
+              Playground에서 확인
+            </button>
+          )}
           {onNavigate && (
             <button
               onClick={() => onNavigate("my-assets")}
-              className="h-9 px-5 rounded bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 transition-colors"
+              className={isAutoRegister
+                ? "h-9 px-5 rounded border border-border text-[13px] text-foreground hover:bg-muted transition-colors"
+                : "h-9 px-5 rounded bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 transition-colors"}
             >
               내 자산 확인하기
             </button>
