@@ -243,11 +243,11 @@ const AUTOMATION_SCHEMA: AssetTypeSchema = {
       required: false,
       options: [
         { value: "MANUAL", label: "수동" },
-        { value: "SCHEDULED", label: "예약" },
+        { value: "SCHEDULED", label: "주기적 반복" },
         { value: "TRIGGERED", label: "트리거" },
       ],
-      // 자율 실행(예약·트리거)은 사람 확인 없이 진행되므로 정밀 심의.
-      risk: { type: "conditional", tier: "정밀", condition: "실행 방식 = 예약 또는 트리거", triggerValues: ["SCHEDULED", "TRIGGERED"] },
+      // 자율 실행(주기적 반복·트리거)은 사람 확인 없이 진행되므로 정밀 심의.
+      risk: { type: "conditional", tier: "정밀", condition: "실행 방식 = 주기적 반복 또는 트리거", triggerValues: ["SCHEDULED", "TRIGGERED"] },
     },
     {
       key: "filePayload",
